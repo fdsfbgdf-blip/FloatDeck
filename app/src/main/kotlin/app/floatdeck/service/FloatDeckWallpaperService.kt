@@ -302,10 +302,10 @@ class GLWallpaperThread(
     private var glReady = false
 
     // ------------------------------------------------------------------
-    // Display pacing state (polled on this thread ~every 0.5s)
+    // Display state (polled on this thread ~every 0.5s)
     // ------------------------------------------------------------------
 
-    /** Default display: source of the refresh rate; also votes for high refresh. */
+    /** Default display: source of the refresh rate and rotation; also votes for high refresh. */
     private val display: android.view.Display? by lazy {
         (context.getSystemService(android.hardware.display.DisplayManager::class.java))
             .getDisplay(android.view.Display.DEFAULT_DISPLAY)
@@ -357,6 +357,9 @@ class GLWallpaperThread(
         var frameStart: Long
         try {
             renderer.onSurfaceCreated(null, null)
+            // Seed the display rotation immediately so sensor remapping is
+            // correct from the first frame, not only after the first poll
+            display?.let { sensorHandler.screenRotation = it.rotation }
             // Initial size: the engine's onSurfaceChanged may have fired
             // before this thread started (notifications dropped), so fall
             // back to the holder's current frame to keep the viewport and
@@ -369,9 +372,9 @@ class GLWallpaperThread(
                 handleSurfaceChanges()
 
                 if (rendering && eglSurface != null) {
-                    // Refresh display pacing state (refresh rate,
-                    // high-refresh vote) every ~0.5s; per-frame queries
-                    // are not free.
+                    // Refresh display-derived state (refresh rate,
+                    // high-refresh vote, rotation for sensor remapping)
+                    // every ~0.5s; per-frame queries are not free.
                     frameCounter++
                     if (frameCounter % DISPLAY_POLL_INTERVAL_FRAMES == 0) {
                         pollDisplayState()
@@ -437,6 +440,9 @@ class GLWallpaperThread(
     /** Refreshes pacing state from the display. */
     private fun pollDisplayState() {
         val d = display ?: return
+        // Rotation feeds the sensor's screen-frame remapping; a stale value
+        // after an orientation change would tilt the axes the wrong way.
+        sensorHandler.screenRotation = d.rotation
         val refresh = d.refreshRate.toInt().coerceIn(30, 240)
         val maxHz = d.supportedModes.maxOfOrNull { it.refreshRate.toInt() } ?: refresh
         val preferred = when (preferredFrameRateMode) {
