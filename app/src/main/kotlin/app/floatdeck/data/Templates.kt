@@ -16,6 +16,7 @@ data class TemplateFile(
  *
  * @param left 左侧肖像列表（解锁状态下显示在屏幕左侧）
  * @param right 右侧肖像列表（解锁状态下显示在屏幕右侧）
+ * @param backgroundZoom 用户背景缩放（缺省 1 = 100%），直接保存在模板自己的 template.json 里
  */
 data class TemplateDef(
     val id: String,
@@ -23,6 +24,7 @@ data class TemplateDef(
     val wallpaper: String,
     val left: List<TemplateFile>,
     val right: List<TemplateFile>,
+    val backgroundZoom: Float = 1f,
 )
 
 /**
@@ -61,6 +63,7 @@ object Templates {
                 wallpaper = json.getString("wallpaper"),
                 left = left,
                 right = right,
+                backgroundZoom = parseBackgroundZoom(json),
             )
         } catch (_: Exception) {
             null
@@ -100,10 +103,73 @@ object Templates {
                 wallpaper = json.getString("wallpaper"),
                 left = left,
                 right = right,
+                backgroundZoom = parseBackgroundZoom(json),
             )
         } catch (_: Exception) {
             null
         }
+
+    /**
+     * 读取某模板当前的背景缩放；模板不存在时返回默认值 1。
+     */
+    fun backgroundZoom(
+        context: Context,
+        templateId: String,
+    ): Float {
+        val dir = File(context.filesDir, "${RemoteTemplateLoader.TEMPLATE_DIR}/$templateId")
+        return loadTemplateFromDir(dir)?.backgroundZoom ?: 1f
+    }
+
+    /**
+     * Parses the optional background.zoom field; missing values default to 1 (100%).
+     */
+    internal fun parseBackgroundZoom(json: JSONObject): Float =
+        json.optJSONObject("background")?.optDouble("zoom", 1.0)?.toFloat() ?: 1f
+
+    /**
+     * Persists the user background zoom into the imported template's own
+     * template.json (every template is imported and writable — there are no
+     * built-in asset templates). Missing values fall back to defaults when
+     * read back. Bumps the template revision in SharedPreferences so a
+     * running wallpaper hot-reloads. Returns false when the template is missing.
+     */
+    fun saveBackgroundZoom(
+        context: Context,
+        templateId: String,
+        zoom: Float,
+    ): Boolean {
+        val jsonFile =
+            File(
+                File(context.filesDir, RemoteTemplateLoader.TEMPLATE_DIR),
+                "$templateId/template.json",
+            )
+        if (!jsonFile.exists()) return false
+        return try {
+            val json = JSONObject(jsonFile.readText())
+            jsonFile.writeText(withBackgroundZoom(json, zoom).toString())
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putInt(KEY_TEMPLATE_REVISION, prefs.getInt(KEY_TEMPLATE_REVISION, 0) + 1).apply()
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Returns [json] with background.zoom set (pure, unit-testable). */
+    internal fun withBackgroundZoom(
+        json: JSONObject,
+        zoom: Float,
+    ): JSONObject {
+        val background = json.optJSONObject("background") ?: JSONObject()
+        background.put("zoom", zoom.toDouble())
+        json.put("background", background)
+        return json
+    }
+
+    /** SharedPreferences key bumped on every template.json write; the wallpaper service hot-reloads on change. */
+    const val KEY_TEMPLATE_REVISION = "template_revision"
+
+    private const val PREFS_NAME = "settings_prefs"
 
     /**
      * 将模板定义转换为渲染用的 TemplateConfig，计算每张肖像的布局位置。

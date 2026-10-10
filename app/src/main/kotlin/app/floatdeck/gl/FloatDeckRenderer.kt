@@ -171,6 +171,10 @@ class FloatDeckRenderer(
     @Volatile
     var parallaxSensitivity = 1f
 
+    /** User background zoom multiplier (1 = exact cover). Loaded by the wallpaper service from the template's own template.json. */
+    @Volatile
+    var backgroundZoom = 1f
+
     // ------------------------------------------------------------------
     // 触控
     // ------------------------------------------------------------------
@@ -498,6 +502,9 @@ class FloatDeckRenderer(
         val drawWidth = wallpaperPixelWidth.toFloat() * scaleFactor
         val drawHeight = wallpaperPixelHeight.toFloat() * scaleFactor
 
+        // User zoom on top of the parallax overscan (clamped to MAX_BACKGROUND_ZOOM)
+        val zoomed = backgroundGeometry(drawWidth, drawHeight, backgroundZoom)
+
         val mvp = FloatArray(16)
         val model = FloatArray(16)
         Matrix.setIdentityM(model, 0)
@@ -508,7 +515,7 @@ class FloatDeckRenderer(
             screenHeightPixels / 2f + parallaxY,
             0f,
         )
-        Matrix.scaleM(model, 0, drawWidth / 2f, drawHeight / 2f, 1f)
+        Matrix.scaleM(model, 0, zoomed[0] / 2f, zoomed[1] / 2f, 1f)
         Matrix.multiplyMM(mvp, 0, orthographicMatrix, 0, model, 0)
 
         GLES30.glUniformMatrix4fv(uniformBackgroundMvp, 1, false, mvp, 0)
@@ -874,6 +881,10 @@ class FloatDeckRenderer(
         internal const val PORTRAIT_PARALLAX_X = 0.25f
         internal const val PORTRAIT_PARALLAX_Y = 0.2f
 
+        // Upper bound for the user background zoom; the pan exists to fix
+        // aspect-ratio framing, not to create a zoom effect
+        internal const val MAX_BACKGROUND_ZOOM = 2f
+
         /**
          * Computes the parallax offset in pixels: the sensor value is first
          * clamped to ±0.5 (so extreme tilts cannot produce huge offsets), then
@@ -895,6 +906,23 @@ class FloatDeckRenderer(
                 clampedPitch * screenWidth * xMultiplier,
                 clampedRoll * screenHeight * yMultiplier,
             )
+        }
+
+        /**
+         * Computes the final background draw dimensions for a user zoom.
+         * The zoom is clamped to [1, MAX_BACKGROUND_ZOOM]; the input dimensions
+         * already include the parallax overscan, so the result can never expose
+         * screen edges. Pure function for unit testing.
+         *
+         * @return [drawWidth, drawHeight] after zoom
+         */
+        internal fun backgroundGeometry(
+            drawWidth: Float,
+            drawHeight: Float,
+            zoom: Float,
+        ): FloatArray {
+            val safeZoom = zoom.coerceIn(1f, MAX_BACKGROUND_ZOOM)
+            return floatArrayOf(drawWidth * safeZoom, drawHeight * safeZoom)
         }
     }
 }
