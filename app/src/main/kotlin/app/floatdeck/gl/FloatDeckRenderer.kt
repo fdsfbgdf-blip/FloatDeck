@@ -167,6 +167,10 @@ class FloatDeckRenderer(
     /** 当前立绘特效。由壁纸服务从 SharedPreferences 读取后设置。 */
     var portraitEffect: Int = 0 // 0=无, 1=碎碎冰, 2=炫彩
 
+    /** Global tilt-parallax sensitivity multiplier (1 = default). Set by the wallpaper service from SharedPreferences. */
+    @Volatile
+    var parallaxSensitivity = 1f
+
     // ------------------------------------------------------------------
     // 触控
     // ------------------------------------------------------------------
@@ -448,14 +452,19 @@ class FloatDeckRenderer(
     // ==================================================================
 
     private fun drawBackgroundLayers() {
-        // 视差方向：前后倾平板 → 水平偏移，左右倾平板 → 垂直偏移
-        // 钳制传感器值，防止大角度倾斜导致过大偏移
-        val maxShift = 0.5f // 传感器值最大有效范围
-        val clampedPitch = smoothedPitchY.coerceIn(-maxShift, maxShift)
-        val clampedRoll = smoothedRollX.coerceIn(-maxShift, maxShift)
-        val parallaxX = clampedPitch * screenWidthPixels * 0.1f
-        val parallaxY = clampedRoll * screenHeightPixels * 0.075f
-        drawSingleBackgroundLayer(parallaxX, parallaxY, 1.0f)
+        // Parallax direction: pitch (tilting toward/away) → horizontal shift,
+        // roll (tilting left/right) → vertical shift
+        val offsets =
+            parallaxOffsets(
+                smoothedPitchY,
+                smoothedRollX,
+                screenWidthPixels,
+                screenHeightPixels,
+                BACKGROUND_PARALLAX_X,
+                BACKGROUND_PARALLAX_Y,
+                parallaxSensitivity,
+            )
+        drawSingleBackgroundLayer(offsets[0], offsets[1], 1.0f)
     }
 
     private fun drawSingleBackgroundLayer(
@@ -467,12 +476,14 @@ class FloatDeckRenderer(
         val buffer = quadVertexBuffer ?: return
         bindQuadAttributes(buffer)
 
-        // 视差导致的最大偏移量
+        // Maximum parallax offset: the passed-in offsets already include the
+        // sensor clamp and sensitivity; take their magnitude with a small
+        // margin so the shifted background never exposes screen edges
         val maxParallaxOffset =
             maxOf(
-                abs(smoothedPitchY) * screenWidthPixels * 0.1f,
-                abs(smoothedRollX) * screenHeightPixels * 0.075f,
-            )
+                abs(parallaxX),
+                abs(parallaxY),
+            ) * 1.05f
         // 额外 overscan 比例，确保视差偏移后不出现黑边
         val overscan = 1f + (maxParallaxOffset / minOf(screenWidthPixels, screenHeightPixels)) * 2f
 
@@ -554,12 +565,20 @@ class FloatDeckRenderer(
             val drawScale = lerp(unlockedScale, lockedScale, transitionT)
             val drawRotation = lerp(unlockedRotation, lockedRotation, transitionT)
 
-            // ---- 陀螺仪视差（始终生效）----
-            // 轻微的视差偏移，立绘也有但比壁纸弱
-            val portraitParallaxX = smoothedPitchY.coerceIn(-0.5f, 0.5f) * screenWidthPixels * 0.25f
-            val portraitParallaxY = smoothedRollX.coerceIn(-0.5f, 0.5f) * screenHeightPixels * 0.2f
-            drawX += portraitParallaxX
-            drawY += portraitParallaxY
+            // ---- Gyroscope parallax (always active) ----
+            // Subtle parallax offsets; portraits shift more than the background
+            val portraitParallax =
+                parallaxOffsets(
+                    smoothedPitchY,
+                    smoothedRollX,
+                    screenWidthPixels,
+                    screenHeightPixels,
+                    PORTRAIT_PARALLAX_X,
+                    PORTRAIT_PARALLAX_Y,
+                    parallaxSensitivity,
+                )
+            drawX += portraitParallax[0]
+            drawY += portraitParallax[1]
 
             // ---- 晃动动画（始终生效）----
             val sway = calculateSway(globalIndex)
@@ -847,4 +866,35 @@ class FloatDeckRenderer(
         b: Float,
         t: Float,
     ): Float = a + (b - a) * t.coerceIn(0f, 1f)
+
+    companion object {
+        // Parallax strength coefficients: sensor value × sensitivity × screen size × coefficient = offset pixels
+        internal const val BACKGROUND_PARALLAX_X = 0.1f
+        internal const val BACKGROUND_PARALLAX_Y = 0.075f
+        internal const val PORTRAIT_PARALLAX_X = 0.25f
+        internal const val PORTRAIT_PARALLAX_Y = 0.2f
+
+        /**
+         * Computes the parallax offset in pixels: the sensor value is first
+         * clamped to ±0.5 (so extreme tilts cannot produce huge offsets), then
+         * scaled by the user sensitivity and the screen-size ratios. Extracted
+         * as a pure function for unit testing.
+         */
+        internal fun parallaxOffsets(
+            pitch: Float,
+            roll: Float,
+            screenWidth: Float,
+            screenHeight: Float,
+            xMultiplier: Float,
+            yMultiplier: Float,
+            sensitivity: Float,
+        ): FloatArray {
+            val clampedPitch = pitch.coerceIn(-0.5f, 0.5f) * sensitivity
+            val clampedRoll = roll.coerceIn(-0.5f, 0.5f) * sensitivity
+            return floatArrayOf(
+                clampedPitch * screenWidth * xMultiplier,
+                clampedRoll * screenHeight * yMultiplier,
+            )
+        }
+    }
 }
