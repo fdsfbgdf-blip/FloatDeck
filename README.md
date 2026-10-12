@@ -34,6 +34,12 @@ Each template lives in a folder with a `template.json` and image files:
 }
 ```
 
+#### Optional fields
+
+- `"background": {"zoom": 1.5}` — user background zoom (default `1`, i.e. 100%). Adjusted in
+  settings; the value is written straight back into the imported template's `template.json`,
+  so it travels with the template on export. Missing values fall back to the defaults.
+
 ### Importing Templates
 
 Templates can be imported from:

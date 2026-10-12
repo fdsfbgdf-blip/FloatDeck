@@ -66,6 +66,8 @@ class FloatDeckWallpaperService : WallpaperService() {
                         .getFloat(KEY_TILT_SENSITIVITY, 1f)
                     glThread?.updateTiltSensitivity(value)
                 }
+                // The template's own template.json was rewritten (e.g. background zoom); hot-reload
+                Templates.KEY_TEMPLATE_REVISION -> glThread?.requestReload()
             }
         }
 
@@ -651,6 +653,8 @@ class GLWallpaperThread(
                     )
                 }
             renderer.loadTemplate(config)
+            // User background zoom lives in the template's own template.json
+            renderer.backgroundZoom = def.backgroundZoom
         }
     }
 
