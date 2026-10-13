@@ -98,4 +98,8 @@
     <string name="background_zoom">Zoom</string>
     <string name="background_reset">Réinitialiser</string>
     <string name="background_adjust_no_template">Sélectionnez d\'abord un modèle</string>
+    <string name="wallpaper_behavior">Comportement du fond d\'écran</string>
+    <string name="help_and_about">Aide et à propos</string>
+    <string name="wallpaper_settings_title">Réglages du fond d\'écran</string>
+    <string name="select_template_hint">Choisissez d\'abord un modèle pour ajuster le fond d\'écran</string>
 </resources>

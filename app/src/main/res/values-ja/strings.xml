@@ -98,4 +98,8 @@
     <string name="background_zoom">拡大縮小</string>
     <string name="background_reset">リセット</string>
     <string name="background_adjust_no_template">先にテンプレートを選択してください</string>
+    <string name="wallpaper_behavior">壁紙の動作</string>
+    <string name="help_and_about">ヘルプと情報</string>
+    <string name="wallpaper_settings_title">壁紙の設定</string>
+    <string name="select_template_hint">テンプレートを選ぶと壁紙の動作を調整できます</string>
 </resources>
