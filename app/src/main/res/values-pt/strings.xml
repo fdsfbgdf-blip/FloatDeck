@@ -98,4 +98,6 @@
     <string name="background_zoom">Zoom</string>
     <string name="background_reset">Redefinir</string>
     <string name="background_adjust_no_template">Selecione primeiro um modelo</string>
+    <string name="wallpaper_behavior">Comportamento do papel de parede</string>
+    <string name="help_and_about">Ajuda e sobre</string>
 </resources>

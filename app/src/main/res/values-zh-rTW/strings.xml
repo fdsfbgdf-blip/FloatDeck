@@ -98,4 +98,6 @@
     <string name="background_zoom">縮放</string>
     <string name="background_reset">重設</string>
     <string name="background_adjust_no_template">請先選擇範本</string>
+    <string name="wallpaper_behavior">桌布行為</string>
+    <string name="help_and_about">說明與關於</string>
 </resources>
