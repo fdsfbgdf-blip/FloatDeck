@@ -41,13 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.floatdeck.R
 import app.floatdeck.BuildConfig
+import app.floatdeck.ui.FloatDeckTheme
 
 /** Open source licenses screen Activity. */
 class LicenseActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            FloatDeckTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     LicenseScreen(onBack = { finish() })
                 }
