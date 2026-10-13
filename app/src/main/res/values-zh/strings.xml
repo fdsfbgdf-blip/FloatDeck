@@ -100,4 +100,6 @@
     <string name="background_adjust_no_template">请先选择模板</string>
     <string name="wallpaper_behavior">壁纸行为</string>
     <string name="help_and_about">帮助与关于</string>
+    <string name="wallpaper_settings_title">壁纸设置</string>
+    <string name="select_template_hint">先选择一个模板，即可调整壁纸效果</string>
 </resources>

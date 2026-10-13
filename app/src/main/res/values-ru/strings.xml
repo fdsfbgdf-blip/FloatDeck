@@ -100,4 +100,6 @@
     <string name="background_adjust_no_template">Сначала выберите шаблон</string>
     <string name="wallpaper_behavior">Поведение обоев</string>
     <string name="help_and_about">Справка и о программе</string>
+    <string name="wallpaper_settings_title">Настройки обоев</string>
+    <string name="select_template_hint">Сначала выберите шаблон, чтобы настроить поведение обоев</string>
 </resources>

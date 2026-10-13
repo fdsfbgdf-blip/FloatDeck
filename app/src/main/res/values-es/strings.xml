@@ -100,4 +100,6 @@
     <string name="background_adjust_no_template">Selecciona primero una plantilla</string>
     <string name="wallpaper_behavior">Comportamiento del fondo</string>
     <string name="help_and_about">Ayuda y acerca de</string>
+    <string name="wallpaper_settings_title">Ajustes del fondo</string>
+    <string name="select_template_hint">Elige primero una plantilla para ajustar el fondo animado</string>
 </resources>

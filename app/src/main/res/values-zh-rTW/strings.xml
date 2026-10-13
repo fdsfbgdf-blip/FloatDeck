@@ -100,4 +100,6 @@
     <string name="background_adjust_no_template">請先選擇範本</string>
     <string name="wallpaper_behavior">桌布行為</string>
     <string name="help_and_about">說明與關於</string>
+    <string name="wallpaper_settings_title">桌布設定</string>
+    <string name="select_template_hint">先選擇一個範本，即可調整桌布效果</string>
 </resources>

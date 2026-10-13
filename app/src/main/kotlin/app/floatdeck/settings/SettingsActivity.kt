@@ -1,4 +1,3 @@
-
 package app.floatdeck.settings
 
 import android.app.WallpaperManager
@@ -11,10 +10,20 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -168,7 +177,8 @@ private fun loadAllTemplates(
     return assets + imported
 }
 
-/** Settings screen: template gallery, wallpaper behavior, app-level settings and a pinned bottom CTA. */
+/** Settings screen: template gallery, template-scoped wallpaper settings,
+ * app-level settings and a pinned bottom CTA. */
 @Composable
 fun SettingsScreen(
     repo: SettingsRepository,
@@ -180,6 +190,7 @@ fun SettingsScreen(
     var dragEnabled by remember { mutableStateOf(true) }
     var templates by remember { mutableStateOf<List<TemplateUi>>(emptyList()) }
     var templatesVersion by remember { mutableIntStateOf(0) }
+    var showWallpaperSettings by rememberSaveable { mutableStateOf(false) }
     var urlText by rememberSaveable { mutableStateOf("") }
     var isLoading by rememberSaveable { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
@@ -224,6 +235,11 @@ fun SettingsScreen(
     LaunchedEffect(templatesVersion) {
         templates = withContext(Dispatchers.IO) { loadAllTemplates(context, remoteLoader) }
     }
+    // Leave the wallpaper settings page when the selected template is deleted
+    LaunchedEffect(templateId) {
+        if (templateId.isBlank()) showWallpaperSettings = false
+    }
+    BackHandler(enabled = showWallpaperSettings) { showWallpaperSettings = false }
 
     // Highest refresh rate supported by the built-in display.
     val maxRefreshHz =
@@ -430,7 +446,7 @@ fun SettingsScreen(
                     .padding(padding),
         ) {
             // Two-pane on tablets (>= 840dp): left = header + template domain,
-            // right = wallpaper behavior + app-level about.
+            // right = template-scoped wallpaper settings (after selection).
             if (maxWidth >= 840.dp) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
@@ -478,43 +494,71 @@ fun SettingsScreen(
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState()),
                     ) {
-                        SectionLabel(stringResource(R.string.wallpaper_behavior))
-                        BehaviorSection(
-                            selectedEffect = selectedEffect,
-                            onEffectChange = { scope.launch { repo.setPortraitEffect(it) } },
-                            dragEnabled = dragEnabled,
-                            onDragChange = { scope.launch { repo.setDragEnabled(it) } },
-                            frameRateOptions = frameRateOptions,
-                            currentFrameRateMode = currentFrameRateMode,
-                            onFrameRateChange = { scope.launch { repo.setFrameRateMode(it) } },
-                            tiltSetting = { TiltSensitivitySetting(repo = repo) },
-                            backgroundAdjust = { BackgroundAdjustSettings(templateId = templateId) },
-                        )
+                        // Slide the settings pane in when switching templates
+                        AnimatedContent(
+                            targetState = templateId,
+                            transitionSpec = {
+                                (slideInHorizontally(
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                ) { it } + fadeIn()) togetherWith
+                                    (slideOutHorizontally { -it / 4 } + fadeOut())
+                            },
+                            label = "wallpaper-settings-pane",
+                        ) { currentId ->
+                            Column {
+                                if (currentId.isBlank()) {
+                                    Text(
+                                        stringResource(R.string.select_template_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 28.dp),
+                                    )
+                                } else {
+                                    templates.firstOrNull { it.id == currentId }?.let {
+                                        Text(
+                                            text = it.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier =
+                                                Modifier.padding(
+                                                    start = 28.dp,
+                                                    end = 28.dp,
+                                                    bottom = 10.dp,
+                                                ),
+                                        )
+                                    }
+                                    BehaviorSection(
+                                        selectedEffect = selectedEffect,
+                                        onEffectChange = { scope.launch { repo.setPortraitEffect(it) } },
+                                        dragEnabled = dragEnabled,
+                                        onDragChange = { scope.launch { repo.setDragEnabled(it) } },
+                                        frameRateOptions = frameRateOptions,
+                                        currentFrameRateMode = currentFrameRateMode,
+                                        onFrameRateChange = { scope.launch { repo.setFrameRateMode(it) } },
+                                        tiltSetting = { TiltSensitivitySetting(repo = repo) },
+                                        backgroundAdjust = {
+                                            BackgroundAdjustSettings(templateId = currentId)
+                                        },
+                                    )
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(32.dp))
                     }
                 }
             } else {
+                // Phones (< 840dp): main page <-> wallpaper settings page,
+                // progressive hierarchy.
                 val availableWidth = maxWidth
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    LazyColumn(
-                        modifier = Modifier.widthIn(max = 640.dp),
-                    ) {
-                        item { AppHeader() }
-                        item { SectionLabel(stringResource(R.string.template_title)) }
-                        item {
-                            TemplateSection(
-                                templates = templates,
-                                selectedId = templateId,
-                                grid = availableWidth >= 600.dp,
-                                onSelect = { scope.launch { repo.setTemplate(it) } },
-                                onDelete = ::deleteTemplate,
-                            )
-                        }
-                        item { SectionLabel(stringResource(R.string.wallpaper_behavior)) }
-                        item {
+                Crossfade(targetState = showWallpaperSettings, label = "wallpaper-settings") { inSettings ->
+                    if (inSettings) {
+                        Column(
+                            modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(rememberScrollState()),
+                        ) {
+                            DetailTopBar(title = selectedName, onBack = { showWallpaperSettings = false })
                             BehaviorSection(
                                 selectedEffect = selectedEffect,
                                 onEffectChange = { scope.launch { repo.setPortraitEffect(it) } },
@@ -526,33 +570,78 @@ fun SettingsScreen(
                                 tiltSetting = { TiltSensitivitySetting(repo = repo) },
                                 backgroundAdjust = { BackgroundAdjustSettings(templateId = templateId) },
                             )
+                            Spacer(Modifier.height(32.dp))
                         }
-                        item { SectionLabel(stringResource(R.string.import_section_title)) }
-                        item {
-                            ImportSection(
-                                onUrl = {
-                                    errorMessage = ""
-                                    showUrlImport = true
-                                },
-                                onLocal = { showLocalImport = true },
-                            )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.TopCenter,
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier.widthIn(max = 640.dp),
+                            ) {
+                                item { AppHeader() }
+                                item { SectionLabel(stringResource(R.string.template_title)) }
+                                item {
+                                    TemplateSection(
+                                        templates = templates,
+                                        selectedId = templateId,
+                                        grid = availableWidth >= 600.dp,
+                                        onSelect = { scope.launch { repo.setTemplate(it) } },
+                                        onDelete = ::deleteTemplate,
+                                    )
+                                }
+                                item {
+                                    GroupCard {
+                                        SettingsRow(
+                                            title = stringResource(R.string.wallpaper_settings_title),
+                                            subtitle =
+                                                selectedName
+                                                    ?: stringResource(R.string.select_template_hint),
+                                            iconRes = R.drawable.ic_tune,
+                                            onClick =
+                                                if (templateId.isNotBlank()) {
+                                                    { showWallpaperSettings = true }
+                                                } else {
+                                                    null
+                                                },
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                                item { SectionLabel(stringResource(R.string.import_section_title)) }
+                                item {
+                                    ImportSection(
+                                        onUrl = {
+                                            errorMessage = ""
+                                            showUrlImport = true
+                                        },
+                                        onLocal = { showLocalImport = true },
+                                    )
+                                }
+                                item { SectionLabel(stringResource(R.string.help_and_about)) }
+                                item {
+                                    AboutSection(
+                                        crashLogCount = crashLogCount,
+                                        onCrashLogs = {
+                                            crashLogCount = CrashLogCollector.getLogFiles().size
+                                            showCrashDialog = true
+                                        },
+                                        checkingUpdate = updateChecking,
+                                        onCheckUpdate = ::checkForUpdate,
+                                        onLicenses = {
+                                            context.startActivity(Intent(context, LicenseActivity::class.java))
+                                        },
+                                    )
+                                }
+                                item { Spacer(Modifier.height(32.dp)) }
+                            }
                         }
-                        item { SectionLabel(stringResource(R.string.help_and_about)) }
-                        item {
-                            AboutSection(
-                                crashLogCount = crashLogCount,
-                                onCrashLogs = {
-                                    crashLogCount = CrashLogCollector.getLogFiles().size
-                                    showCrashDialog = true
-                                },
-                                checkingUpdate = updateChecking,
-                                onCheckUpdate = ::checkForUpdate,
-                                onLicenses = {
-                                    context.startActivity(Intent(context, LicenseActivity::class.java))
-                                },
-                            )
-                        }
-                        item { Spacer(Modifier.height(32.dp)) }
                     }
                 }
             }
@@ -873,7 +962,8 @@ private fun TemplateSection(
     }
 }
 
-/** Wallpaper behavior group: portrait effect, drag toggle, tilt sensitivity, background zoom and frame rate. */
+/** Wallpaper settings group (template-scoped): portrait effect, drag toggle,
+ * tilt sensitivity, background zoom and frame rate. */
 @Composable
 private fun BehaviorSection(
     selectedEffect: PortraitEffect,
@@ -1050,6 +1140,35 @@ private fun AboutSection(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Wallpaper settings page top bar: back button + current template name. */
+@Composable
+private fun DetailTopBar(
+    title: String?,
+    onBack: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(end = 16.dp),
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                painter = painterResource(R.drawable.ic_arrow_back),
+                contentDescription = stringResource(R.string.back),
+            )
+        }
+        if (title != null) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
             )
         }
     }

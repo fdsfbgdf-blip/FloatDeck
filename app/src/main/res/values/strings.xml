@@ -100,4 +100,6 @@
     <string name="background_adjust_no_template">Select a template first</string>
     <string name="wallpaper_behavior">Wallpaper behavior</string>
     <string name="help_and_about">Help &amp; about</string>
+    <string name="wallpaper_settings_title">Wallpaper settings</string>
+    <string name="select_template_hint">Pick a template first to adjust wallpaper behavior</string>
 </resources>
