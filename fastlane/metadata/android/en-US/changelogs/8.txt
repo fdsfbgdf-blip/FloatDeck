@@ -1,0 +1,3 @@
+• New app icon and a refreshed theme across the settings UI.
+• Settings screen rebuilt around an adaptive template gallery.
+• Wallpaper options moved to a dedicated screen.
