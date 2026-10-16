@@ -68,7 +68,7 @@ fun AppHeader(modifier: Modifier = Modifier) {
                 .padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 4.dp),
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_wallpaper_thumb),
+            painter = painterResource(R.drawable.ic_launcher),
             contentDescription = stringResource(R.string.app_name),
             modifier =
                 Modifier
