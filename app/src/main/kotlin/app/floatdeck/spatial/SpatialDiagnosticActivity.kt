@@ -33,7 +33,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             renderer.forcedView = if (manual) SpatialPose.Input(x, y) else null
             preview.requestRender()
             val now = android.os.SystemClock.elapsedRealtime()
-            if (now - lastInfo >= 200) { updateInfo(); lastInfo = now }
+            if (now - lastInfo >= 1500) { updateInfo(); lastInfo = now }
             handler.postDelayed(this, 33)
         }
     }

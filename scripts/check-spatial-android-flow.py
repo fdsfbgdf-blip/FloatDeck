@@ -19,10 +19,24 @@ def adb(*args):
         raise
 
 def dump():
-    adb('shell', 'uiautomator', 'dump', '/sdcard/spatial-smoke.xml')
-    data = adb('shell', 'cat', '/sdcard/spatial-smoke.xml')
-    (output / 'ui.xml').write_bytes(data)
-    return ET.fromstring(data).iter('node')
+    # uiautomator can exit 0 without writing XML while a window is settling.
+    # Remove the previous snapshot so a failed dump cannot pass on stale UI.
+    errors = []
+    for attempt in range(5):
+        adb('shell', 'rm', '-f', '/sdcard/spatial-smoke.xml')
+        result = adb('shell', 'uiautomator', 'dump', '--compressed', '/sdcard/spatial-smoke.xml')
+        read = subprocess.run(['adb', 'shell', 'cat', '/sdcard/spatial-smoke.xml'], capture_output=True)
+        if read.returncode == 0:
+            try:
+                root = ET.fromstring(read.stdout)
+                (output / 'ui.xml').write_bytes(read.stdout)
+                return root.iter('node')
+            except ET.ParseError as error:
+                errors.append(str(error))
+        errors.append(result.decode(errors='replace'))
+        time.sleep(1)
+    (output / 'dump-failure.png').write_bytes(adb('exec-out', 'screencap', '-p'))
+    raise AssertionError('Could not obtain fresh UI hierarchy: ' + repr(errors))
 
 def click(node):
     bounds = list(map(int, re.findall(r'\d+', node.attrib['bounds'])))
