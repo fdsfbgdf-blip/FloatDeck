@@ -32,10 +32,23 @@ class SpatialRenderer(
     private var y = 0f
     private var last = 0L
     private var ready = false
+    @Volatile var forcedView: SpatialPose.Input? = null
+    @Volatile var diagnosticBoost = false
+    @Volatile var diagnostics = SpatialRenderStatus()
+        private set
+    private var failedSignature = ""
+    private var retryAt = 0L
     private val uniforms = mutableMapOf<String, Int>()
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        program = ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialFragment)
+        diagnostics = SpatialRenderStatus(
+            glVersion = GL.glGetString(GL.GL_VERSION) ?: "GL 版本不可用",
+            gpu = GL.glGetString(GL.GL_RENDERER) ?: "GPU 信息不可用",
+        )
+        program = try { ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialFragment) } catch (error: Exception) {
+            diagnostics = diagnostics.copy(message = "空间着色器编译/链接失败：${error.message}")
+            0
+        }
         uniforms.clear()
         for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
         textures.fill(0)
@@ -44,6 +57,8 @@ class SpatialRenderer(
         maskPath = ""
         loaded = ""
         ready = false
+        failedSignature = ""
+        retryAt = 0L
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -59,42 +74,77 @@ class SpatialRenderer(
         val state = prefs.all
         val paths = listOf(state["image"] as? String ?: "", state["depth"] as? String ?: "")
         val signature = paths.joinToString("|")
-        if (signature != loaded) {
-            loaded = signature
+        val now = android.os.SystemClock.elapsedRealtimeNanos()
+        if (program == 0) return
+        if (signature != loaded && (signature != failedSignature || now >= retryAt)) {
+            failedSignature = signature
+            retryAt = now + 1_000_000_000L
+            diagnostics = diagnostics.copy(name = state["package_name"] as? String ?: "高级工具壁纸", packageId = state["package_id"] as? String ?: "", ready = false, message = "正在加载空间纹理")
             ready = false
             GL.glDeleteTextures(2, textures, 0)
             textures.fill(0)
             if (paths.all { !it.isNullOrEmpty() && File(it!!).isFile }) {
                 try {
+                    for (attempt in 0 until 8) { if (GL.glGetError() == GL.GL_NO_ERROR) break }
                     GL.glGenTextures(2, textures, 0)
                     paths.forEachIndexed { index, path ->
                         val bitmap = SpatialAssets.decode(File(path!!))
                         try {
-                            if (index == 0) aspect = bitmap.width.toFloat() / bitmap.height
+                            if (index == 0) {
+                                aspect = bitmap.width.toFloat() / bitmap.height
+                                diagnostics = diagnostics.copy(imageWidth = bitmap.width, imageHeight = bitmap.height)
+                            } else {
+                                require(bitmap.width == diagnostics.imageWidth && bitmap.height == diagnostics.imageHeight) { "原图与深度纹理尺寸不一致" }
+                                val row = IntArray(bitmap.width)
+                                val levels = BooleanArray(256)
+                                var min = 255
+                                var max = 0
+                                for (y in 0 until bitmap.height) {
+                                    bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+                                    for (pixel in row) {
+                                        val depth = (pixel ushr 16) and 255
+                                        min = minOf(min, depth); max = maxOf(max, depth); levels[depth] = true
+                                    }
+                                }
+                                diagnostics = diagnostics.copy(depthWidth = bitmap.width, depthHeight = bitmap.height, depthMin = min, depthMax = max, depthLevels = levels.count { it })
+                            }
+                            GL.glActiveTexture(GL.GL_TEXTURE0 + index)
                             GL.glBindTexture(GL.GL_TEXTURE_2D, textures[index])
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
                             GLUtils.texImage2D(GL.GL_TEXTURE_2D, 0, bitmap, 0)
+                            val uploadError = GL.glGetError()
+                            check(uploadError == GL.GL_NO_ERROR) { "${if (index == 0) "原图" else "深度图"}上传失败 GL=0x${uploadError.toString(16)}" }
                         } finally { bitmap.recycle() }
                     }
-                    ready = GL.glGetError() == GL.GL_NO_ERROR
+                    ready = true
+                    loaded = signature
+                    diagnostics = diagnostics.copy(ready = true, imageTexture = textures[0], depthTexture = textures[1], message = "空间 GPU 高度场已加载；GL 上传正常")
                 } catch (error: Exception) {
                     android.util.Log.e("SpatialRenderer", "Texture load failed", error)
+                    diagnostics = diagnostics.copy(ready = false, message = "纹理加载失败，将重试：${error.message}")
                 }
+            } else {
+                diagnostics = diagnostics.copy(ready = false, message = "原图或深度图路径缺失，请重新选择/导入壁纸")
             }
         }
         if (!ready) return
-        val now = System.nanoTime()
         val dt = if (last == 0L) 0.033f else ((now - last) / 1e9f).coerceIn(0f, 0.1f)
         last = now
         val alpha = 1f - kotlin.math.exp(-dt * 10f)
-        x += (tiltX - x) * alpha
-        y += (tiltY - y) * alpha
-        val strength = (state["strength"] as? Float ?: 0.5f)
-        val sensitivity = (state["sensitivity"] as? Float ?: 1f)
-        val angle = (state["angle"] as? Float ?: 8f)
+        val forced = forcedView
+        if (forced != null) {
+            x = forced.x.coerceIn(-1f, 1f)
+            y = forced.y.coerceIn(-1f, 1f)
+        } else {
+            x += (tiltX - x) * alpha
+            y += (tiltY - y) * alpha
+        }
+        val strength = if (diagnosticBoost) 1f else (state["strength"] as? Float ?: 0.5f)
+        val sensitivity = if (diagnosticBoost) 1f else (state["sensitivity"] as? Float ?: 1f)
+        val angle = if (diagnosticBoost) 15f else (state["angle"] as? Float ?: 8f)
         val cover = SpatialMath.cover(aspect, width.toFloat() / height, (state["crop"] as? Float ?: 0.04f))
         GL.glDisable(GL.GL_BLEND)
         GL.glDisable(GL.GL_DEPTH_TEST)
@@ -110,8 +160,21 @@ class SpatialRenderer(
         GL.glUniform1i(uniforms.getValue("uImage"), 0)
         GL.glUniform1i(uniforms.getValue("uDepth"), 1)
         GL.glUniform2f(uniforms.getValue("uCover"), cover[0], cover[1])
-        GL.glUniform2f(uniforms.getValue("uMotion"), SpatialMath.motion(x, sensitivity, angle, strength) * cover[0], SpatialMath.motion(y, sensitivity, angle, strength) * cover[1])
+        val mx = SpatialMath.motion(x, sensitivity, angle, strength)
+        val my = SpatialMath.motion(y, sensitivity, angle, strength)
+        GL.glUniform2f(uniforms.getValue("uMotion"), mx * cover[0], my * cover[1])
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+        val drawError = GL.glGetError()
+        diagnostics = diagnostics.copy(
+            ready = drawError == GL.GL_NO_ERROR,
+            message = if (drawError == GL.GL_NO_ERROR) "空间 GPU 高度场绘制正常；GL=0" else "绘制错误 GL=0x${drawError.toString(16)}",
+            frames = diagnostics.frames + 1, lastFrameNanos = now,
+            viewX = x, viewY = y, motionX = mx * cover[0], motionY = my * cover[1],
+            estimatedNearFarPixelsX = mx * (diagnostics.depthMax - diagnostics.depthMin) / 255f * width,
+            estimatedNearFarPixelsY = my * (diagnostics.depthMax - diagnostics.depthMin) / 255f * height,
+            strength = strength, sensitivity = sensitivity, angle = angle,
+            crop = state["crop"] as? Float ?: 0.04f, forced = forced != null, boosted = diagnosticBoost,
+        )
         GL.glEnable(GL.GL_BLEND)
     }
 
@@ -176,6 +239,7 @@ class SpatialRenderer(
         minute = -1L
         ready = false
         maskReady = false
+        diagnostics = diagnostics.copy(ready = false, message = "纹理已释放，等待重新加载")
     }
 
     fun release() {

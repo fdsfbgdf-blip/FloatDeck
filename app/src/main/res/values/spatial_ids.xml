@@ -7,4 +7,10 @@
     <item name="spatial_library" type="id" />
     <item name="spatial_strength" type="id" />
     <item name="spatial_apply" type="id" />
+    <item name="spatial_diagnostic_open" type="id" />
+    <item name="spatial_diagnostic_preview" type="id" />
+    <item name="spatial_diagnostic_info" type="id" />
+    <item name="spatial_diagnostic_horizontal" type="id" />
+    <item name="spatial_diagnostic_vertical" type="id" />
+    <item name="spatial_diagnostic_restore" type="id" />
 </resources>

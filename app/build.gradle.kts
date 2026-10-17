@@ -91,8 +91,8 @@ android {
         applicationId = "app.floatdeck"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.1.0-spatial-player"
+        versionCode = 11
+        versionName = "1.1.1-spatial-diagnostic"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

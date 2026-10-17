@@ -39,8 +39,8 @@ class SpatialToolsActivity : ComponentActivity() {
         override fun run() {
             @Suppress("DEPRECATION")
             sensor.screenRotation = windowManager.defaultDisplay.rotation
-            renderer.tiltX = sensor.pitchY
-            renderer.tiltY = sensor.rollX
+            renderer.tiltX = sensor.spatialInput.x
+            renderer.tiltY = sensor.spatialInput.y
             preview.requestRender()
             handler.postDelayed(this, 33L)
         }

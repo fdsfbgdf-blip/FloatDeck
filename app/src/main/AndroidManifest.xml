@@ -25,6 +25,7 @@
         </activity>
 
         <activity android:name=".settings.SettingsActivity" android:exported="false" />
+        <activity android:name=".spatial.SpatialDiagnosticActivity" android:exported="false" />
         <activity android:name=".spatial.SpatialToolsActivity" android:exported="false" />
         <activity android:name=".spatial.DepthClockActivity" android:exported="false" />
 

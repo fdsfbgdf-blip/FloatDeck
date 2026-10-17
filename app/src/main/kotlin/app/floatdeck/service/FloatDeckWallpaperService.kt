@@ -83,9 +83,16 @@ class FloatDeckWallpaperService : WallpaperService() {
                 ) {
                     when (intent?.action) {
                         Intent.ACTION_SCREEN_OFF -> {
+                            sensorHandler.unregister()
+                            glThread?.setRendering(false)
                             renderer.triggerLock()
                         }
                         Intent.ACTION_SCREEN_ON -> {
+                            if (isVisible) {
+                                sensorHandler.register()
+                                startGLThread()
+                                glThread?.setRendering(true)
+                            }
                             val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
                             if (!km.isDeviceLocked) {
                                 renderer.triggerUnlock()
@@ -214,6 +221,7 @@ class FloatDeckWallpaperService : WallpaperService() {
                     renderer,
                     sensorHandler,
                     applicationContext,
+                    previewEngine = isPreview,
                 ).apply { start() }
         }
 
@@ -248,6 +256,7 @@ class GLWallpaperThread(
     private val renderer: FloatDeckRenderer,
     private val sensorHandler: SensorHandler,
     private val context: android.content.Context,
+    private val previewEngine: Boolean = false,
 ) : Thread("GLWallpaperThread") {
     @Volatile
     var isRunning = true
@@ -342,6 +351,7 @@ class GLWallpaperThread(
 
     fun setRendering(enabled: Boolean) {
         rendering = enabled
+        publishRuntime()
         // Wake the loop promptly when becoming visible again: it may be in
         // a long screen-off sleep.
         if (enabled) interrupt()
@@ -366,8 +376,25 @@ class GLWallpaperThread(
         renderer.parallaxSensitivity = value
     }
 
+    private val runtimeId = java.util.UUID.randomUUID().toString()
+    @Volatile private var runtimeError = ""
+
+    private fun publishRuntime() {
+        val spatial = app.floatdeck.spatial.SpatialAssets.prefs(context).getBoolean("enabled", false)
+        app.floatdeck.spatial.SpatialWallpaperRuntime.sessions[runtimeId] = app.floatdeck.spatial.SpatialWallpaperRuntime.Session(
+            runtimeId, previewEngine, rendering, isRunning, spatial,
+            sensorHandler.sensorName, sensorHandler.registered, sensorHandler.eventCount, sensorHandler.lastEventNanos,
+            renderer.spatialStatus, runtimeError,
+        )
+        val sessions = app.floatdeck.spatial.SpatialWallpaperRuntime.sessions
+        if (sessions.size > 8) sessions.entries.filter { !it.value.running && it.key != runtimeId }.take(sessions.size - 8).forEach { sessions.remove(it.key) }
+    }
+
     override fun run() {
         if (!initEGL()) {
+            isRunning = false
+            runtimeError = "EGL 初始化失败"
+            publishRuntime()
             Log.e(TAG, "EGL initialization failed")
             return
         }
@@ -406,6 +433,9 @@ class GLWallpaperThread(
                     renderer.smoothedPitchY +=
                         (sensorHandler.pitchY - renderer.smoothedPitchY) * 0.08f
 
+                    renderer.spatialTiltX = sensorHandler.spatialInput.x
+                    renderer.spatialTiltY = sensorHandler.spatialInput.y
+
                     // 首帧或设置变更后重新加载模板/特效
                     if (!templateLoaded || reloadRequested) {
                         loadConfigFromPrefs(prefs)
@@ -415,7 +445,10 @@ class GLWallpaperThread(
 
                     renderer.onDrawFrame(null)
 
-                    egl10?.eglSwapBuffers(eglDisplay, eglSurface)
+                    check(egl10?.eglSwapBuffers(eglDisplay, eglSurface) == true) {
+                        "EGL 换帧失败：0x${egl10?.eglGetError()?.toString(16)}"
+                    }
+                    if (frameCounter % 15 == 0) publishRuntime()
                 } else if (!rendering) {
                     // Screen off: advance transition state only, no GPU
                     // rendering. Nobody sees intermediate frames while the
@@ -441,6 +474,7 @@ class GLWallpaperThread(
             // 关闭时被中断，正常退出
             Thread.currentThread().interrupt()
         } catch (e: Exception) {
+            runtimeError = e.message ?: "GL 壁纸线程异常"
             // 记录渲染循环异常，避免静默吞掉（Surface 销毁时也走此分支）
             if (isRunning) {
                 Log.e(TAG, "Render loop terminated unexpectedly", e)
@@ -454,6 +488,8 @@ class GLWallpaperThread(
                     .onFailure { Log.w(TAG, "renderer.release() failed", it) }
             }
             destroyEGL()
+            isRunning = false
+            publishRuntime()
         }
     }
 

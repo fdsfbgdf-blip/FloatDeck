@@ -74,42 +74,63 @@ class SensorHandler(
         context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     }
 
-    private var registered = false
+    @Volatile var registered = false
+        private set
+    @Volatile var sensorName = "未注册"
+        private set
+    @Volatile var eventCount = 0L
+        private set
+    @Volatile var lastEventNanos = 0L
+        private set
+    @Volatile var rawValues = "无事件"
+        private set
+    @Volatile var accuracy = -1
+        private set
+    val spatialPose = app.floatdeck.spatial.SpatialPose()
+    private var fallbackBaseline: FloatArray? = null
+    private var fallbackRotation = -1
+    @Volatile var spatialInput = app.floatdeck.spatial.SpatialPose.Input()
+        private set
+    @Volatile private var fallbackReset = true
 
-    /** 注册传感器监听，按优先级依次尝试旋转矢量 → 游戏旋转矢量 → 加速度计。 */
-    fun register() {
-        if (registered) return
-
-        val rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        if (rotationVector != null) {
-            sensorManager.registerListener(this, rotationVector, SensorManager.SENSOR_DELAY_UI)
-            registered = true
-            return
-        }
-
-        val gameRotation = sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
-        if (gameRotation != null) {
-            sensorManager.registerListener(this, gameRotation, SensorManager.SENSOR_DELAY_UI)
-            registered = true
-            return
-        }
-
-        // 最后回退：仅用加速度计估算倾斜（无陀螺仪的设备）
-        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        if (accelerometer != null) {
-            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
-            registered = true
-        }
+    fun recenterSpatial() {
+        spatialPose.recenter()
+        fallbackReset = true
+        spatialInput = app.floatdeck.spatial.SpatialPose.Input()
     }
 
-    /** 取消传感器监听。 */
+    fun register() {
+        if (registered) return
+        recenterSpatial()
+        lastEventNanos = 0L
+        rawValues = "等待首个事件"
+        for ((type, label) in listOf(
+            Sensor.TYPE_ROTATION_VECTOR to "旋转向量",
+            Sensor.TYPE_GAME_ROTATION_VECTOR to "游戏旋转向量",
+            Sensor.TYPE_ACCELEROMETER to "加速度计（仅重力回退，不能感知竖直左右转动）",
+        )) {
+            val candidate = sensorManager.getDefaultSensor(type) ?: continue
+            // The old implementation treated a rejected listener as registered,
+            // silently preventing fallback to a working sensor.
+            if (sensorManager.registerListener(this, candidate, SensorManager.SENSOR_DELAY_GAME)) {
+                sensorName = "$label / ${candidate.name}"
+                registered = true
+                return
+            }
+        }
+        sensorName = "没有可用传感器或监听注册失败"
+    }
+
     fun unregister() {
-        if (!registered) return
-        sensorManager.unregisterListener(this)
+        if (registered) sensorManager.unregisterListener(this)
         registered = false
     }
 
     override fun onSensorChanged(event: SensorEvent) {
+        eventCount++
+        lastEventNanos = android.os.SystemClock.elapsedRealtimeNanos()
+        rawValues = event.values.take(4).joinToString(", ") { "%.4f".format(java.util.Locale.US, it) }
+        accuracy = event.accuracy
         when (event.sensor.type) {
             // 旋转矢量 / 游戏旋转矢量：旋转矩阵重映射到屏幕坐标系后，直接取世界"上"方向
             // 在屏幕坐标的分量作为倾斜量。平板/手机直立握持时两个输出都接近 0（无偏置），
@@ -134,6 +155,7 @@ class SensorHandler(
                 // screenMatrix maps screen→world; its third row (elements 6/7/8)
                 // holds the world-up vector in screen coordinates:
                 //   R'[6] = up·screenX, R'[7] = up·screenY, R'[8] = up·screenZ
+                spatialInput = spatialPose.update(screenMatrix, screenRotation)
                 pitchY = -screenMatrix[6] // screen bank: right edge dipping → positive
                 rollX = -screenMatrix[8] // front/back tilt: leaning back → negative
             }
@@ -146,6 +168,16 @@ class SensorHandler(
                     // Screen-Z gravity equals device-Z gravity for all four rotations.
                     pitchY = remapped[0]
                     rollX = g[2] / norm
+                    if (fallbackReset || fallbackRotation != screenRotation || fallbackBaseline == null) {
+                        fallbackBaseline = floatArrayOf(pitchY, rollX)
+                        fallbackRotation = screenRotation
+                        fallbackReset = false
+                    }
+                    val base = fallbackBaseline!!
+                    spatialInput = app.floatdeck.spatial.SpatialPose.Input(
+                        ((pitchY - base[0]) * 3f).coerceIn(-1f, 1f),
+                        ((rollX - base[1]) * 3f).coerceIn(-1f, 1f),
+                    )
                 }
             }
         }
@@ -154,5 +186,5 @@ class SensorHandler(
     override fun onAccuracyChanged(
         sensor: Sensor?,
         accuracy: Int,
-    ) {}
+    ) { this.accuracy = accuracy }
 }

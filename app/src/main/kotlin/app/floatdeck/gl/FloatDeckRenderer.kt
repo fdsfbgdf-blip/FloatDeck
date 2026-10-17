@@ -73,6 +73,9 @@ class FloatDeckRenderer(
     private val spatial by lazy { app.floatdeck.spatial.SpatialRenderer(context) }
     private val spatialPrefs by lazy { app.floatdeck.spatial.SpatialAssets.prefs(context) }
     private var spatialActive = false
+    @Volatile var spatialTiltX = 0f
+    @Volatile var spatialTiltY = 0f
+    val spatialStatus get() = spatial.diagnostics
     private var portraitProgram = 0
     private var backgroundProgram = 0
     private var quadVertexBuffer: FloatBuffer? = null
@@ -382,8 +385,8 @@ class FloatDeckRenderer(
     fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
         if (spatialPrefs.getBoolean("enabled", false)) {
             spatialActive = true
-            spatial.tiltX = smoothedPitchY
-            spatial.tiltY = smoothedRollX
+            spatial.tiltX = spatialTiltX
+            spatial.tiltY = spatialTiltY
             spatial.onDrawFrame(gl)
             return
         }

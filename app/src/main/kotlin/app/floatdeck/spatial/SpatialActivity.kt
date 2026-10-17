@@ -51,8 +51,8 @@ class SpatialActivity : ComponentActivity() {
         override fun run() {
             @Suppress("DEPRECATION")
             sensor.screenRotation = windowManager.defaultDisplay.rotation
-            renderer.tiltX = sensor.pitchY
-            renderer.tiltY = sensor.rollX
+            renderer.tiltX = sensor.spatialInput.x
+            renderer.tiltY = sensor.spatialInput.y
             preview.requestRender()
             handler.postDelayed(this, 33L)
         }
@@ -132,6 +132,7 @@ class SpatialActivity : ComponentActivity() {
         }
         layout.addView(strength)
         button("设为动态壁纸", R.id.spatial_apply) { applyWallpaper() }
+        button("3D 效果检测", R.id.spatial_diagnostic_open) { startActivity(Intent(this, SpatialDiagnosticActivity::class.java)) }
         button("更多：原版动态壁纸 / 高级工具 / 时钟预览") {
             android.app.AlertDialog.Builder(this).setItems(arrayOf("普通动态壁纸（原版）", "高级技术工具", "已有景深时钟预览")) { _, which ->
                 when (which) {

@@ -65,3 +65,45 @@ adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
 time.sleep(1)
 (output / 'applied-home.png').write_bytes(adb('exec-out', 'screencap', '-p'))
 print('PASS: selected package and 37% strength survived process restart; public system picker applied FloatDeckWallpaperService')
+
+# Observe the installed Engine after foreground/background and screen-off/wake.
+# Only ordinary input events on the emulator's default non-secure lock screen.
+def diagnostic_engine():
+    adb('shell', 'am', 'start', '-W', '-n', 'app.floatdeck.dev/app.floatdeck.spatial.SpatialActivity')
+    for attempt in range(10):
+        node = next((n for n in dump() if n.attrib.get('resource-id', '').endswith(':id/spatial_diagnostic_open') and n.attrib.get('enabled') == 'true'), None)
+        if node is not None:
+            click(node)
+            break
+        time.sleep(1)
+    else:
+        raise AssertionError('3D diagnostic entry not available')
+    for attempt in range(10):
+        nodes = list(dump())
+        text = next((n.attrib.get('text', '') for n in nodes if n.attrib.get('resource-id', '').endswith(':id/spatial_diagnostic_info')), '')
+        lines = re.findall(r'已安装壁纸引擎\[[^\]]+\]：[^\n]+', text)
+        for line in lines:
+            if '空间模式' in line and '晨光森林' in line and '强度0.370' in line and '深度25-240' in line:
+                count = re.search(r'渲染帧(\d+)', line)
+                if count and int(count.group(1)) > 0:
+                    return line
+        time.sleep(1)
+    raise AssertionError('Installed spatial Engine did not report real frame/preset/depth state: ' + text)
+
+before = diagnostic_engine()
+adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+time.sleep(2)
+adb('shell', 'input', 'keyevent', 'KEYCODE_SLEEP')
+time.sleep(2)
+adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')
+adb('shell', 'input', 'keyevent', 'KEYCODE_MENU')
+adb('shell', 'input', 'keyevent', 'KEYCODE_HOME')
+time.sleep(3)
+after = diagnostic_engine()
+(output / 'lifecycle-diagnostics.txt').write_text('before=' + before + '\nafter=' + after)
+id_before = re.search(r'\[([^\]]+)\]', before).group(1)
+id_after = re.search(r'\[([^\]]+)\]', after).group(1)
+if id_before == id_after:
+    assert int(re.search(r'渲染帧(\d+)', after).group(1)) > int(re.search(r'渲染帧(\d+)', before).group(1)), 'Engine failed to resume drawing after screen wake'
+(output / 'diagnostic-status.png').write_bytes(adb('exec-out', 'screencap', '-p'))
+print('PASS: installed wallpaper GL frame/preset/depth state restored after background and screen sleep/wake (emulator only)')
