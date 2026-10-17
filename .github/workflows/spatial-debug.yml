@@ -72,6 +72,10 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            ./gradlew assembleDebug assembleDebugAndroidTest
+            # Compilation can outlast the emulator display timeout. Ordinary input only.
+            adb shell input keyevent KEYCODE_WAKEUP
+            adb shell input keyevent KEYCODE_MENU
             ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest,app.floatdeck.spatial.SpatialGpuDiagnosticTest,app.floatdeck.spatial.SpatialDiagnosticLifecycleTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
             adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png
             python3 scripts/check-spatial-android-flow.py

@@ -41,6 +41,14 @@ class SpatialDiagnosticLifecycleTest {
                 }
             }
             fun drag(id: Int, fraction: Float) {
+                val focusDeadline = System.currentTimeMillis() + 10_000
+                while (true) {
+                    var focused = false
+                    scenario.onActivity { focused = it.hasWindowFocus() }
+                    if (focused) break
+                    assertTrue("Diagnostic window did not regain input focus", System.currentTimeMillis() < focusDeadline)
+                    Thread.sleep(100)
+                }
                 scenario.onActivity { activity ->
                     val seek = activity.findViewById<SeekBar>(id)
                     seek.requestRectangleOnScreen(Rect(0, 0, seek.width, seek.height), true)
