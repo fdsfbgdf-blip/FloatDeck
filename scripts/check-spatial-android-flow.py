@@ -42,6 +42,8 @@ def click(node):
     bounds = list(map(int, re.findall(r'\d+', node.attrib['bounds'])))
     adb('shell', 'input', 'tap', str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
 
+adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')
+adb('shell', 'input', 'keyevent', 'KEYCODE_MENU')
 adb('shell', 'am', 'force-stop', 'app.floatdeck.dev')
 adb('shell', 'am', 'start', '-W', '-n', 'app.floatdeck.dev/app.floatdeck.spatial.SpatialActivity')
 for attempt in range(10):
@@ -83,7 +85,10 @@ print('PASS: selected package and 37% strength survived process restart; public 
 # Observe the installed Engine after foreground/background and screen-off/wake.
 # Only ordinary input events on the emulator's default non-secure lock screen.
 def diagnostic_engine():
-    adb('shell', 'am', 'start', '-W', '-n', 'app.floatdeck.dev/app.floatdeck.spatial.SpatialActivity')
+    # Long UI dumps can exceed the emulator screen timeout; use ordinary input.
+    adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP')
+    adb('shell', 'input', 'keyevent', 'KEYCODE_MENU')
+    adb('shell', 'am', 'start', '-W', '--activity-clear-top', '--activity-single-top', '-n', 'app.floatdeck.dev/app.floatdeck.spatial.SpatialActivity')
     for attempt in range(10):
         node = next((n for n in dump() if n.attrib.get('resource-id', '').endswith(':id/spatial_diagnostic_open') and n.attrib.get('enabled') == 'true'), None)
         if node is not None:
@@ -91,7 +96,7 @@ def diagnostic_engine():
             break
         time.sleep(1)
     else:
-        raise AssertionError('3D diagnostic entry not available')
+        raise AssertionError('3D diagnostic entry not available: ' + (output / 'ui.xml').read_text())
     for attempt in range(10):
         nodes = list(dump())
         text = next((n.attrib.get('text', '') for n in nodes if n.attrib.get('resource-id', '').endswith(':id/spatial_diagnostic_info')), '')
