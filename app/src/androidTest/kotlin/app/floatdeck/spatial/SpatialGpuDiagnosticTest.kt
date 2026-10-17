@@ -78,7 +78,10 @@ class SpatialGpuDiagnosticTest {
                             if (entry.id == three.id) {
                                 assertTrue("$axis/$sign actual samples $changes", abs(changes[0]) + 1 < abs(changes[1]) && abs(changes[1]) + 1 < abs(changes[2]))
                                 assertTrue(changes.all { it * sign <= 0 } && changes.drop(1).all { it * sign < 0 })
-                            } else assertTrue("Constant depth has spurious relative displacement: $changes", changes.maxOrNull()!! - changes.minOrNull()!! <= 1)
+                            } else {
+                                assertTrue("Constant depth has spurious relative displacement: $changes", changes.maxOrNull()!! - changes.minOrNull()!! <= 1)
+                                assertTrue("Constant depth must still move the complete image: $changes", changes.all { abs(it) >= 3 })
+                            }
                             assertEquals(sign, if (axis == 0) renderer.diagnostics.viewX else renderer.diagnostics.viewY, 0.0001f)
                             android.util.Log.i("SpatialGpuTest", "axis=$axis sign=$sign constant=${entry.id == constant.id} samples=$changes")
                         }

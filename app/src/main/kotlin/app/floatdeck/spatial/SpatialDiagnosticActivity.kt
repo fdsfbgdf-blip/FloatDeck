@@ -118,13 +118,13 @@ class SpatialDiagnosticActivity : ComponentActivity() {
         val component = runCatching { WallpaperManager.getInstance(this).wallpaperInfo?.component?.flattenToShortString() }.getOrNull() ?: "静态壁纸/系统未返回组件"
         val sessions = SpatialWallpaperRuntime.sessions.values.sortedByDescending { it.render.lastFrameNanos }.take(3)
         info.text = buildString {
-            appendLine("当前：${s.name}；模式：空间 GPU / ${if (manual) "强制视角，完全绕过姿态" else "相对姿态"}")
+            appendLine("当前：${SpatialPackageStore.previewPrefs(this@SpatialDiagnosticActivity).getString("package_name", s.name)}；模式：空间 GPU / ${if (manual) "强制视角，完全绕过姿态" else "相对姿态"}")
             appendLine("源原图：$originalSize；实际上传原图：${s.imageWidth}×${s.imageHeight}；深度：${s.depthWidth}×${s.depthHeight}")
             appendLine("白近黑远；最小 ${s.depthMin} / 最大 ${s.depthMax} / 变化范围 ${s.depthMax - s.depthMin} / ${s.depthLevels} 个灰度级")
             appendLine("${s.message}；纹理 ${s.imageTexture}/${s.depthTexture}；帧数 ${s.frames}；最近帧 ${age(s.lastFrameNanos)}")
             appendLine("${s.glVersion}；${s.gpu}")
             appendLine("传感器：${sensor.sensorName}；注册=${sensor.registered}；事件=${sensor.eventCount}；年龄=${age(sensor.lastEventNanos)}；精度=${sensor.accuracy}")
-            appendLine("原始值：[${sensor.rawValues}]；相对角：${f(input.yawDegrees)}° / ${f(input.pitchDegrees)}°；输入 ${f(input.x)}, ${f(input.y)}")
+            appendLine("原始值：[${sensor.rawValues}]；相对角：${f(input.yawDegrees)}° / ${f(input.pitchDegrees)}° / 侧倾${f(input.bankDegrees)}°；输入 ${f(input.x)}, ${f(input.y)}")
             appendLine("实际视角 ${f(s.viewX)}, ${f(s.viewY)}；uniform 位移 ${f(s.motionX)}, ${f(s.motionY)}")
             appendLine("强度 ${f(s.strength)}；灵敏度 ${f(s.sensitivity)}；最大角 ${f(s.angle)}°；裁切 ${f(s.crop)}；${if (s.boosted) "本页检测幅度" else "包/用户参数"}")
             appendLine("估计本预览近远像素差：水平 ${f(s.estimatedNearFarPixelsX)} / 垂直 ${f(s.estimatedNearFarPixelsY)}（不是实测像素）")

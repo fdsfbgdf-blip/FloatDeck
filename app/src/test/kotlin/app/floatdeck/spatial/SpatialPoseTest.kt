@@ -41,6 +41,16 @@ class SpatialPoseTest {
         assertEquals(0f, pose.update(yaw(15f), 0).x, 0.001f)
         assertEquals(0f, pose.update(yaw(-15f), 1).x, 0.001f)
     }
+    @Test fun `side edge bank gesture still drives horizontal parallax`() {
+        for (angle in listOf(-15f, 15f)) {
+            val r = Math.toRadians(angle.toDouble()); val c = cos(r).toFloat(); val s = sin(r).toFloat()
+            val roll = floatArrayOf(c, -s, 0f, s, c, 0f, 0f, 0f, 1f)
+            val pose = SpatialPose(); pose.update(upright, 0)
+            val result = pose.update(multiply(upright, roll), 0)
+            assertEquals(angle, result.bankDegrees, 0.001f)
+            assertEquals(-angle / 20f, result.x, 0.001f)
+        }
+    }
     @Test fun `large pose is bounded and zero motion stays neutral`() {
         val pose = SpatialPose(); pose.update(identity, 0)
         assertEquals(0f, pose.update(identity, 0).x, 0.001f)
