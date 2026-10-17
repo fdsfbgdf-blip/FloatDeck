@@ -11,7 +11,10 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /** Used unchanged by wallpaper and live preview. All GL resources belong to the GL thread. */
-class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
+class SpatialRenderer(
+    private val context: Context,
+    private val prefs: android.content.SharedPreferences = SpatialAssets.prefs(context),
+) : GLSurfaceView.Renderer {
     private var program = 0
     private val textures = IntArray(2)
     private val clockTextures = IntArray(2)
@@ -29,7 +32,6 @@ class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private var y = 0f
     private var last = 0L
     private var ready = false
-    private val prefs = SpatialAssets.prefs(context)
     private val uniforms = mutableMapOf<String, Int>()
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -54,7 +56,8 @@ class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
     override fun onDrawFrame(gl: GL10?) {
         GL.glClearColor(0.06f, 0.08f, 0.1f, 1f)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT)
-        val paths = listOf(prefs.getString("image", ""), prefs.getString("depth", ""))
+        val state = prefs.all
+        val paths = listOf(state["image"] as? String ?: "", state["depth"] as? String ?: "")
         val signature = paths.joinToString("|")
         if (signature != loaded) {
             loaded = signature
@@ -89,10 +92,10 @@ class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
         val alpha = 1f - kotlin.math.exp(-dt * 10f)
         x += (tiltX - x) * alpha
         y += (tiltY - y) * alpha
-        val strength = prefs.getFloat("strength", 0.5f)
-        val sensitivity = prefs.getFloat("sensitivity", 1f)
-        val angle = prefs.getFloat("angle", 8f)
-        val cover = SpatialMath.cover(aspect, width.toFloat() / height, prefs.getFloat("crop", 0.04f))
+        val strength = (state["strength"] as? Float ?: 0.5f)
+        val sensitivity = (state["sensitivity"] as? Float ?: 1f)
+        val angle = (state["angle"] as? Float ?: 8f)
+        val cover = SpatialMath.cover(aspect, width.toFloat() / height, (state["crop"] as? Float ?: 0.04f))
         GL.glDisable(GL.GL_BLEND)
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUseProgram(program)
@@ -100,7 +103,7 @@ class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
             GL.glActiveTexture(GL.GL_TEXTURE0 + i)
             GL.glBindTexture(GL.GL_TEXTURE_2D, textures[i])
         }
-        updateClock()
+        updateClock(state)
         GL.glUniform1i(uniforms.getValue("uClockEnabled"), if (showClock && maskReady) 1 else 0)
         GL.glUniform1i(uniforms.getValue("uClock"), 2)
         GL.glUniform1i(uniforms.getValue("uMask"), 3)
@@ -113,9 +116,9 @@ class SpatialRenderer(private val context: Context) : GLSurfaceView.Renderer {
     }
 
     // Preview only. WallpaperService never enables showClock.
-    private fun updateClock() {
+    private fun updateClock(state: Map<String, *>) {
         if (!showClock) return
-        val path = prefs.getString("mask", "") ?: ""
+        val path = state["mask"] as? String ?: ""
         if (path != maskPath) {
             maskPath = path
             maskReady = false

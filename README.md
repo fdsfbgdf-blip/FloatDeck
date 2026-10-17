@@ -104,3 +104,7 @@ MIT
 ## Spatial Wallpaper V1.0 prototype
 
 The `spatial-v1` fork branch adds full-image depth parallax, local source/depth/mask import, and explicitly app-only depth-clock previews. See [SPATIAL_V1.md](SPATIAL_V1.md) for implementation, Android lock-screen limits, APK downloads, validation and device test steps. Original template mode and MIT license are retained.
+
+## Spatial Wallpaper V1.1 player
+
+Import a complete spatial wallpaper ZIP, preview it, switch saved wallpapers, optionally adjust strength, and use Android's live-wallpaper picker. See [the ZIP format](SPATIAL_PACKAGE_FORMAT.md), [working sample packs](samples/spatial/), and [V1.1 delivery and device test steps](SPATIAL_V1_1.md). The existing GPU engine, original template mode, and app-only clock tools are retained.

@@ -82,14 +82,17 @@ android {
         getByName("main") {
             java.srcDirs("src/main/kotlin")
         }
+        getByName("androidTest") {
+            assets.srcDir(rootProject.file("samples/spatial"))
+        }
     }
 
     defaultConfig {
         applicationId = "app.floatdeck"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.0.0-spatial-preview"
+        versionCode = 10
+        versionName = "1.1.0-spatial-player"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

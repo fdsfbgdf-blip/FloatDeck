@@ -22,6 +22,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Install shader validator
         run: sudo apt-get update && sudo apt-get install -y glslang-tools
+      - name: Build original sample packages
+        run: python3 scripts/build-spatial-samples.py samples/spatial
       - name: Test, validate shaders and build
         run: ./gradlew testDebugUnitTest validateShaders assembleDebug
       # AGP 9.1.1/Kotlin FIR currently crashes in several lint detectors.
@@ -31,8 +33,53 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-V1-debug
+          name: FloatDeck-Spatial-V1.1-debug
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
             app/build/reports/lint-results-debug.html
+            samples/spatial/*.zip
+            SPATIAL_PACKAGE_FORMAT.md
+            SPATIAL_V1_1.md
+
+  android-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM for the disposable test emulator
+        run: sudo chmod 666 /dev/kvm
+      - name: Android package import and player lifecycle tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest
+            python3 scripts/check-spatial-android-flow.py
+      - name: Collect emulator preview image
+        if: always()
+        run: adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: FloatDeck-Spatial-V1.1-Android-tests
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            spatial-preview.png
+            work/android-smoke/

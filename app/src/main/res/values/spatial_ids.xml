@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="spatial_title" type="id" />
+    <item name="spatial_status" type="id" />
+    <item name="spatial_preview" type="id" />
+    <item name="spatial_import" type="id" />
+    <item name="spatial_library" type="id" />
+    <item name="spatial_strength" type="id" />
+    <item name="spatial_apply" type="id" />
+</resources>
