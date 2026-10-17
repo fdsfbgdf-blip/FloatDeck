@@ -70,6 +70,9 @@ class FloatDeckRenderer(
     // ------------------------------------------------------------------
     // OpenGL 着色器程序
     // ------------------------------------------------------------------
+    private val spatial by lazy { app.floatdeck.spatial.SpatialRenderer(context) }
+    private val spatialPrefs by lazy { app.floatdeck.spatial.SpatialAssets.prefs(context) }
+    private var spatialActive = false
     private var portraitProgram = 0
     private var backgroundProgram = 0
     private var quadVertexBuffer: FloatBuffer? = null
@@ -240,6 +243,7 @@ class FloatDeckRenderer(
         uniformBackgroundAlpha = GLES30.glGetUniformLocation(backgroundProgram, "uAlpha")
 
         quadVertexBuffer = Quad.createBuffer()
+        spatial.onSurfaceCreated(gl, config)
     }
 
     fun onSurfaceChanged(
@@ -247,6 +251,7 @@ class FloatDeckRenderer(
         width: Int,
         height: Int,
     ) {
+        spatial.onSurfaceChanged(gl, width, height)
         screenWidthPixels = width.toFloat()
         screenHeightPixels = height.toFloat()
         GLES30.glViewport(0, 0, width, height)
@@ -375,6 +380,17 @@ class FloatDeckRenderer(
     // ==================================================================
 
     fun onDrawFrame(gl: javax.microedition.khronos.opengles.GL10?) {
+        if (spatialPrefs.getBoolean("enabled", false)) {
+            spatialActive = true
+            spatial.tiltX = smoothedPitchY
+            spatial.tiltY = smoothedRollX
+            spatial.onDrawFrame(gl)
+            return
+        }
+        if (spatialActive) {
+            spatial.releaseImages()
+            spatialActive = false
+        }
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT)
 
         updateFrameDelta()
@@ -731,7 +747,15 @@ class FloatDeckRenderer(
         GLES30.glDisableVertexAttribArray(1)
     }
 
+    fun releaseTemplateTextures() {
+        portraitStates.forEach { TextureLoader.deleteTexture(it.textureId) }
+        portraitStates.clear()
+        if (wallpaperTextureId != 0) TextureLoader.deleteTexture(wallpaperTextureId)
+        wallpaperTextureId = 0
+    }
+
     fun release() {
+        spatial.release()
         portraitStates.forEach { TextureLoader.deleteTexture(it.textureId) }
         portraitStates.clear()
         if (wallpaperTextureId != 0) TextureLoader.deleteTexture(wallpaperTextureId)

@@ -41,6 +41,9 @@ class FloatDeckWallpaperService : WallpaperService() {
     inner class FloatDeckEngine : Engine() {
         private val renderer = FloatDeckRenderer(applicationContext)
         private val sensorHandler = SensorHandler(applicationContext)
+        private val spatialPrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "enabled") glThread?.requestReload()
+        }
 
         private var glThread: GLWallpaperThread? = null
 
@@ -98,6 +101,7 @@ class FloatDeckWallpaperService : WallpaperService() {
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
+            app.floatdeck.spatial.SpatialAssets.prefs(applicationContext).registerOnSharedPreferenceChangeListener(spatialPrefsListener)
 
             // 根据当前锁屏状态初始化过渡进度（避免从默认状态跳变）
             val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
@@ -122,10 +126,10 @@ class FloatDeckWallpaperService : WallpaperService() {
             // 热重载：监听设置变化
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(prefsListener)
-            sensorHandler.register()
         }
 
         override fun onDestroy() {
+            app.floatdeck.spatial.SpatialAssets.prefs(applicationContext).unregisterOnSharedPreferenceChangeListener(spatialPrefsListener)
             unregisterReceiver(lockReceiver)
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(prefsListener)
@@ -488,7 +492,7 @@ class GLWallpaperThread(
     ) {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) return
         val desired =
-            preferredFps?.toFloat()
+            if (app.floatdeck.spatial.SpatialAssets.prefs(context).getBoolean("enabled", false)) 30f else preferredFps?.toFloat()
                 ?: d.supportedModes.maxOfOrNull { it.refreshRate }
                 ?: d.refreshRate
         if (desired == lastRequestedRefreshFps) return
@@ -505,7 +509,7 @@ class GLWallpaperThread(
     /** 根据本帧已耗时计算剩余时间睡眠，接近目标帧率且不浪费 CPU。 */
     private fun paceFrame(frameStartNanos: Long) {
         val elapsed = System.nanoTime() - frameStartNanos
-        val interval = fullFrameIntervalNanos
+        val interval = if (app.floatdeck.spatial.SpatialAssets.prefs(context).getBoolean("enabled", false)) 35_000_000L else fullFrameIntervalNanos
         // Scale the present margin with the interval so high refresh rates
         // still leave room for draw + submission.
         val margin =
@@ -610,6 +614,10 @@ class GLWallpaperThread(
 
     /** 从设置读取模板 id 与特效并加载到渲染器。 */
     private fun loadConfigFromPrefs(prefs: SharedPreferences) {
+        if (app.floatdeck.spatial.SpatialAssets.prefs(context).getBoolean("enabled", false)) {
+            renderer.releaseTemplateTextures()
+            return
+        }
         val savedId = prefs.getString(KEY_TEMPLATE_ID, "") ?: ""
         val effectStr = prefs.getString(KEY_PORTRAIT_EFFECT, "none") ?: "none"
         renderer.portraitEffect =

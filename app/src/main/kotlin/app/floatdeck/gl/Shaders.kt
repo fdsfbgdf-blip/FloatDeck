@@ -213,4 +213,67 @@ object Shaders {
             fragColor = vec4(texColor.rgb * uAlpha, texColor.a * uAlpha);
         }
         """.trimIndent()
+
+    // Inverse height-field ray intersection: first hit resolves foreground occlusion.
+    val spatialVertex = """
+        #version 300 es
+        precision highp float;
+        out vec2 vUV;
+        void main() {
+            vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+            vUV = vec2(p.x, 1.0 - p.y);
+            gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+        }
+        """.trimIndent()
+
+    val spatialFragment = """
+        #version 300 es
+        precision highp float;
+        uniform sampler2D uImage;
+        uniform sampler2D uDepth;
+        uniform vec2 uCover;
+        uniform vec2 uMotion;
+        uniform sampler2D uClock;
+        uniform sampler2D uMask;
+        uniform int uClockEnabled;
+        in vec2 vUV;
+        out vec4 fragColor;
+        void main() {
+            vec2 base = (vUV - 0.5) * uCover + 0.5;
+            vec2 uv = base;
+            float previous = 1.0;
+            bool hit = false;
+            // White = near. March near to far, then refine the first crossing.
+            for (int i = 0; i <= 24; ++i) {
+                float z = 1.0 - float(i) / 24.0;
+                vec2 candidate = base - uMotion * z;
+                float depth = texture(uDepth, candidate).r;
+                if (depth >= z) {
+                    float lo = z;
+                    float hi = previous;
+                    for (int j = 0; j < 4; ++j) {
+                        float mid = (lo + hi) * 0.5;
+                        if (texture(uDepth, base - uMotion * mid).r >= mid) lo = mid;
+                        else hi = mid;
+                    }
+                    uv = base - uMotion * ((lo + hi) * 0.5);
+                    hit = true;
+                    break;
+                }
+                previous = z;
+            }
+            // Bounded local fallback only; unseen background cannot be reconstructed.
+            if (!hit) uv = base;
+            vec3 color = texture(uImage, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
+            if (uClockEnabled == 1) {
+                vec4 clock = texture(uClock, vUV);
+                float mask = texture(uMask, uv).r;
+                // GLUtils uploads premultiplied clock pixels. Both image and mask
+                // use the same ray intersection UV, avoiding displaced contours.
+                float visible = 1.0 - mask;
+                color = color * (1.0 - clock.a * visible) + clock.rgb * visible;
+            }
+            fragColor = vec4(color, 1.0);
+        }
+        """.trimIndent()
 }

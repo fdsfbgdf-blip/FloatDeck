@@ -100,3 +100,7 @@ Or: Settings → Wallpaper → Live Wallpapers → FloatDeck
 ## License
 
 MIT
+
+## Spatial Wallpaper V1.0 prototype
+
+The `spatial-v1` fork branch adds full-image depth parallax, local source/depth/mask import, and explicitly app-only depth-clock previews. See [SPATIAL_V1.md](SPATIAL_V1.md) for implementation, Android lock-screen limits, APK downloads, validation and device test steps. Original template mode and MIT license are retained.

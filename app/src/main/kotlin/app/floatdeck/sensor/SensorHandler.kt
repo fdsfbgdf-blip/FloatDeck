@@ -57,10 +57,12 @@ class SensorHandler(
     }
 
     /** 左右倾斜值（roll），约 -1 ~ 1 */
+    @Volatile
     var rollX = 0f
         private set
 
     /** 前后倾斜值（pitch），约 -1 ~ 1 */
+    @Volatile
     var pitchY = 0f
         private set
 
