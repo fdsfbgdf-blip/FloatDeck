@@ -69,11 +69,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest
+            ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+            adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png
             python3 scripts/check-spatial-android-flow.py
-      - name: Collect emulator preview image
-        if: always()
-        run: adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:

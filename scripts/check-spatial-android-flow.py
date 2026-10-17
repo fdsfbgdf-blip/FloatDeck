@@ -12,7 +12,11 @@ output = Path('work/android-smoke')
 output.mkdir(parents=True, exist_ok=True)
 
 def adb(*args):
-    return subprocess.check_output(['adb', *args], stderr=subprocess.STDOUT)
+    try:
+        return subprocess.check_output(['adb', *args], stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as error:
+        print(error.output.decode(errors='replace'))
+        raise
 
 def dump():
     adb('shell', 'uiautomator', 'dump', '/sdcard/spatial-smoke.xml')
