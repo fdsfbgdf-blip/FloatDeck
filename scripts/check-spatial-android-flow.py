@@ -46,7 +46,8 @@ for attempt in range(12):
         applied = True
         break
     nodes = list(dump())
-    preferred = ['set wallpaper', 'home screen', 'home screen and lock screen', 'set as wallpaper', 'apply', 'set']
+    # Destination choices must win over a dialog title also named 'Set wallpaper'.
+    preferred = ['home screen', 'home screen and lock screen', 'set wallpaper', 'set as wallpaper', 'apply', 'set']
     chosen = None
     for label in preferred:
         chosen = next((node for node in nodes if node.attrib.get('text', '').strip().lower() == label and node.attrib.get('enabled') == 'true'), None)
