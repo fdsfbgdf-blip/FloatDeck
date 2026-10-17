@@ -57,7 +57,7 @@ MESA_SHADER_CACHE_DIR=work/mesa python3 scripts/spatial-render-check.py
 
 单元测试：原有 101 + 新增 7 = 108。新增覆盖远近相对位移、零运动、运动上限、等比例裁切、遮罩透明度和深度阈值。
 
-验证结果：`testDebugUnitTest` 108/108 通过、`validateShaders` 6/6 通过、`assembleDebug` 成功；APK v2 签名验证通过。`lintDebug` **未通过**：AGP 9.1.1/Kotlin FIR 在 OverdrawDetector 内部崩溃；仅排除该检测器的诊断重试又在原有测试文件/渲染器的 Compose LocalContextConfigurationReadDetector、ExperimentalDetector 中崩溃。没有保留屏蔽检测器的配置，也不把工具崩溃标记为检查通过。Actions 中 Lint 单独运行并明确允许失败，单元测试/GLSL/构建仍是必须通过的步骤。后续需对 AGP/Kotlin/Compose Lint 版本进行兼容性修复。
+验证结果：`testDebugUnitTest` 108/108 通过、`validateShaders` 6/6 通过、`assembleDebug` 成功；APK v2 签名验证通过。云端本地 JDK 21 环境中 `lintDebug` **未通过**：AGP 9.1.1/Kotlin FIR 在 OverdrawDetector 内部崩溃；仅排除该检测器的诊断重试又在原有测试文件/渲染器的 Compose LocalContextConfigurationReadDetector、ExperimentalDetector 中崩溃。没有保留屏蔽检测器的配置，也不把工具崩溃标记为检查通过。Actions 中 Lint 单独运行并明确允许失败，单元测试/GLSL/构建仍是必须通过的步骤。远端 GitHub Actions 的 JDK 17 环境中同一源码的 `lintDebug` 已实际通过（不是依赖 continue-on-error 才成功）；后续需修复本地 JDK 21 环境的 Lint 兼容性。
 
 GLSL：6 个着色器（原有 4 + 新增 2）。另以云端 Mesa EGL ES3 实际编译链接和运行新增着色器，256×256 坐标编码图测得四方向远/中/近位移约 ±1/±5/±10 像素；组合时钟有 12 个遮挡采样检查。软件 ES3 验证不能替代手机 GPU 驱动、真实姿态、帧率、发热或锁屏兼容性测试。
 
@@ -88,3 +88,13 @@ APK 路径：`app/build/outputs/apk/debug/app-debug.apk`。在 Fork 的 Actions 
 - 预留 DepthProvider 接口，但未集成 AI 深度生成。
 
 下一步先在至少一台 Adreno 和一台 Mali 手机上验证安装、方向、Surface 重建及熄屏/解锁，采集 GPU 时间、PSS 和电量，再修复轮廓伪影、统一 C/D 参数和素材清理。厂商原生锁屏适配独立进行，不阻塞空间壁纸原型。
+
+## 已核实的 GitHub 交付结果
+
+- 功能提交：`74c8ab53ee9d792321f957ae06c129e4f5c2ab05`。
+- SDK 安装 CI 修复提交：`3d2796205d5867c76ded4507095fed03ebcdef24`。首轮远端因 setup-android 默认请求已经移除的 `tools` 包失败，明确指定 SDK 36 包后修复。
+- [成功运行记录](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/38998941415)：测试、6 个着色器验证、APK 构建、Android Lint 和上传步骤全部 success。
+- [下载 APK 和验证报告 ZIP](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/38998941415/artifacts/12088102519)，需登录 GitHub。解压后 APK 位于 `outputs/apk/debug/app-debug.apk`，测试报告在 `reports/tests/testDebugUnitTest/`。该产物当前保留至 2027-01-15，过期后重新运行工作流获取。
+- artifact ZIP SHA-256：`e8a3a2e93ee2fe050f7e5c756d1a07a13fda78900121d12e22f6aa59ea6e20fb`。
+- 本地 APK：`app/build/outputs/apk/debug/app-debug.apk`，SHA-256 `e507843674355d704b66da73141ad912647749c3db1674fc89c6d4e1860e708e`。本地与 Actions 使用各自的 Debug 签名，切换来源时可能需要卸载原 dev 包；不要将此 APK 哈希用于校验 Actions 的 ZIP。
+- 未向上游提交 PR，MIT LICENSE 保持不变，无付费高清素材上传。
