@@ -46,9 +46,14 @@ class SpatialDiagnosticLifecycleTest {
                     seek.requestRectangleOnScreen(Rect(0, 0, seek.width, seek.height), true)
                 }
                 instrumentation.waitForIdleSync()
+                Thread.sleep(200) // Wait for scrolling/window transactions before screen-coordinate injection.
                 var x = 0f; var y = 0f
                 scenario.onActivity { activity ->
                     val seek = activity.findViewById<SeekBar>(id)
+                    assertTrue("Diagnostic window must own input focus", activity.hasWindowFocus())
+                    val visible = Rect()
+                    assertTrue("Slider must be on screen", seek.getGlobalVisibleRect(visible))
+                    assertTrue("Slider must be fully visible", visible.height() == seek.height)
                     val point = IntArray(2); seek.getLocationOnScreen(point)
                     x = point[0] + seek.paddingLeft + fraction * (seek.width - seek.paddingLeft - seek.paddingRight)
                     y = point[1] + seek.height / 2f

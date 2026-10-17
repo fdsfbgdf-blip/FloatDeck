@@ -64,7 +64,6 @@ class SpatialDiagnosticActivity : ComponentActivity() {
         scroll.addView(controls)
         root.addView(scroll, LinearLayout.LayoutParams(-1, resources.displayMetrics.heightPixels * 45 / 100))
         info = TextView(this).apply { id = R.id.spatial_diagnostic_info; textSize = 12f; setTextIsSelectable(true) }
-        controls.addView(info)
         fun slider(label: String, id: Int, set: (Float) -> Unit): SeekBar {
             val title = TextView(this).apply { text = "$label：0.00" }
             controls.addView(title)
@@ -95,6 +94,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             id = R.id.spatial_diagnostic_restore; text = "恢复陀螺仪（以当前握姿重新居中）"
             setOnClickListener { manual = false; x = 0f; y = 0f; horizontal.progress = 100; vertical.progress = 100; renderer.forcedView = null; sensor.recenterSpatial() }
         })
+        controls.addView(info)
         controls.addView(CheckBox(this).apply {
             text = "使用明显检测幅度（仅本页：强度 1 / 最大角 15°）"
             setOnCheckedChangeListener { _, checked -> renderer.diagnosticBoost = checked }
