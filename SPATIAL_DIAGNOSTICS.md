@@ -56,3 +56,15 @@ ZIP 校验/manifest → 保留 source 原文件 → Android BitmapFactory 同尺
 - 编译、GLSL、JVM、pbuffer、模拟器流程即使全部通过，也**没有替代真实手机的传感器、GPU 驱动、OEM 生命周期、空间感及功耗验收**。
 
 保留 MIT、原版动态壁纸、空间 ZIP 播放器及现有应用内时钟功能。本次不扩展锁屏景深时钟，不使用付费壁纸。
+
+## 本次交付记录（2026-10-17）
+
+- 测试源码提交：`40048e9c69dfda1322a1b87848f45cfacd4155af`（个人 Fork 的 `spatial-v1`）。
+- JVM：148 项，0 失败；GLSL：6 项，0 失败；Debug APK 构建成功。
+- Android 15 / API 35 临时模拟器：9 项集成测试通过，含真实生产 Shader 的 GLES3 像素回读、两轴正反向、恒深度对照、真实滑块触摸及后台/切包恢复。
+- 公开系统选择器应用通过；强停重启保留晨光森林和 37% 强度；后台及息屏亮屏后的已安装 Engine 帧数/参数/深度恢复检查通过。编译后先以普通按键唤醒测试模拟器，界面转场读取重试，避免将熄屏或旧任务栈误判为渲染失败。
+- [完整 Actions 记录](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39028345578)。
+- [APK、测试 ZIP 和文档下载](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39028345578/artifacts/12099218057)：需登录 GitHub，下载外层产物 ZIP 后解压；安装 `app-debug.apk`，将 `diagnostic_3d.spatial.zip` 和 `diagnostic_constant.spatial.zip` 原样导入应用。
+- [Android 报告、预览和系统流程截图](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39028345578/artifacts/12098649497)。Actions 产物按仓库保留期失效后，可重新运行 Spatial Debug APK 工作流生成。
+
+**仍未进行物理安卓手机验证。** 通用实现不代表所有 GPU、传感器或 OEM 锁屏行为一致；请执行上面的手机步骤。单图遮挡背景不可完整恢复，默认照片视角仍应保守；下一步按 A/B/C 检测结果修复具体链路，不扩展 AI、付费或时钟功能。
