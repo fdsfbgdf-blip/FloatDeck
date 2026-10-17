@@ -46,7 +46,7 @@ MESA_SHADER_CACHE_DIR=work/mesa python3 scripts/spatial-render-check.py
 - JVM 测试覆盖：现有 108 测试 + 34 个 ZIP/格式/持久化用例，含真实示例包、路径穿越、重复文件、异常条目数、压缩炸弹、截断/CRC、错误版本/字段/参数、事务回滚、语义去重、强度与选择持久化。
 - 6 个 GLSL 着色器检查；既有 Mesa ES3 四方向深度位移与时钟组合遮挡检查。
 - Android 集成测试使用真实 `BitmapFactory`、原始 ZIP、私有文件及 SharedPreferences，覆盖图片类型/尺寸/灰度检查、黑近白远规范化、失败回滚、页面重建、实际 GLSurfaceView PixelCopy 预览像素、应用按钮和系统 Intent。
-- Actions 的临时 API 35 模拟器运行上述 Android 测试，并通过公开系统 UI 操作验证强制停止后的恢复、37% 强度持久化和系统壁纸选择器应用。最终结果以本次成功的 Actions 运行及报告为准；首次提交前，本地测试 APK 已编译，云端本身没有 Android 设备，不能将编译等同于执行通过。
+- Actions 的临时 API 35 模拟器运行上述 Android 测试，并通过公开系统 UI 操作验证强制停止后的恢复、37% 强度持久化和系统壁纸选择器应用。本次 API 35 模拟器已实际执行通过；云端本身没有 Android 真机，不能将模拟器结果等同于厂商手机实测。
 
 ## 真机测试清单
 
@@ -71,3 +71,16 @@ MESA_SHADER_CACHE_DIR=work/mesa python3 scripts/spatial-render-check.py
 - 下阶段优先：真实手机验收、系统预览取消回滚、素材缩略图和大库管理，以及帧耗时分析。
 
 保留原 MIT LICENSE 和现有第三方许可入口，没有新增 Android 运行时依赖。
+
+## 本次已核实的交付记录
+
+- 功能提交：`7cc62eb552c49e25ead9007975e804b9e1a52561`。CI/系统 UI 测试修复后的已验证源码：`8fa43ae4ac06b0bd95962d315aceffbb2fd0329c`，均在个人 Fork 的 `spatial-v1` 分支。
+- [Actions 完整成功运行](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39002183931)：`spatial-debug` 与 `android-integration` 两个任务均为 success。
+- [下载 APK、两套示例 ZIP 和报告](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39002183931/artifacts/12089517866)，需登录 GitHub。下载包解压后 APK 位于 `app/build/outputs/apk/debug/app-debug.apk`；示例位于 `samples/spatial/`。不要再解压示例 `.spatial.zip`，在 APP 中直接选择它。
+- [下载 Android 测试报告、GL 预览及已应用桌面截图](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39002183931/artifacts/12089367036)。
+- 142 个 JVM 单元测试：0 失败、0 错误、0 跳过。本地与远端 Debug 构建、6 个着色器检查均通过；远端 Android Lint 实际通过。
+- API 35 模拟器：6 个 Android 集成测试通过，其中实际 PixelCopy 预览颜色检查通过。随后独立烟测通过：强制停止并重启应用后恢复森林作品及 37% 强度，通过公开系统选择器确认，`dumpsys wallpaper` 核实当前组件为 `FloatDeckWallpaperService`。
+- 本地既有 Mesa ES3 深度位移及组合遮挡验证仍通过：四方向远/中/近位移约 1/5/10 像素。
+- APK/示例下载 artifact ZIP SHA-256：`d4709e929c9c1249e3e8ece7e3a8b960f794216f8d61161caa2af41011f9cd41`，不是单个 APK 的哈希。产物当前保留至 2027-01-15，过期可重新运行工作流。
+- 前两次 Android 任务在 6 个集成测试通过后，被 AGP 自动卸载测试应用阻断了后续烟测；已通过 AGP 的公开构建选项保留安装，并把截图采集移到模拟器关闭前。最终运行无此失败。
+- 尚无 Adreno/Mali Android 真机验收，不宣称系统原生锁屏时钟景深可用；未向原作者提交 PR，没有上传任何付费壁纸。
