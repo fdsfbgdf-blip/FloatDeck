@@ -92,11 +92,11 @@ class SpatialDiagnosticActivity : ComponentActivity() {
         val vertical = slider("强制垂直视角", R.id.spatial_diagnostic_vertical) { y = it }
         controls.addView(Button(this).apply {
             id = R.id.spatial_diagnostic_restore; text = "恢复陀螺仪（以当前握姿重新居中）"
-            setOnClickListener { manual = false; x = 0f; y = 0f; horizontal.progress = 100; vertical.progress = 100; renderer.forcedView = null; sensor.recenterSpatial() }
+            setOnClickListener { manual = false; x = 0f; y = 0f; horizontal.progress = 100; vertical.progress = 100; renderer.forcedView = null; sensor.recenterSpatial(); renderer.recenter() }
         })
         controls.addView(info)
         controls.addView(CheckBox(this).apply {
-            text = "使用明显检测幅度（仅本页：强度 1 / 最大角 15°）"
+            text = "使用明显检测幅度（仅本页：增强模式 / 强度 1 / 响应角 12°）"
             setOnCheckedChangeListener { _, checked -> renderer.diagnosticBoost = checked }
         })
         controls.addView(TextView(this).apply { text = "先导入 diagnostic_3d：来回拖滑块，上方远景应移动少，下方近景应移动多。再导入恒深度包：只能整体平移，不应有层间差异。\nA 滑块也不动：看 GL/深度/强度，截图反馈。B 滑块正常、转手机不动：看事件计数、事件年龄与姿态。C 两者正常、原包不明显：比较强度与估计像素差。结论须结合屏幕实测，GL=0 不代表真机视觉通过。\n本页不应用壁纸，不保存强制视角；返回主界面后可正常设为动态壁纸。" })
@@ -125,8 +125,9 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             appendLine("${s.glVersion}；${s.gpu}")
             appendLine("传感器：${sensor.sensorName}；注册=${sensor.registered}；事件=${sensor.eventCount}；年龄=${age(sensor.lastEventNanos)}；精度=${sensor.accuracy}")
             appendLine("原始值：[${sensor.rawValues}]；相对角：${f(input.yawDegrees)}° / ${f(input.pitchDegrees)}° / 侧倾${f(input.bankDegrees)}°；输入 ${f(input.x)}, ${f(input.y)}")
+            appendLine("GPU 相机偏移 ${f(s.cameraX)}, ${f(s.cameraY)} UV；${f(s.fps)} FPS；目标 ${f(s.targetPercent)}%（理论上限）；${s.limitReason}")
             appendLine("实际视角 ${f(s.viewX)}, ${f(s.viewY)}；uniform 位移 ${f(s.motionX)}, ${f(s.motionY)}")
-            appendLine("强度 ${f(s.strength)}；灵敏度 ${f(s.sensitivity)}；最大角 ${f(s.angle)}°；裁切 ${f(s.crop)}；${if (s.boosted) "本页检测幅度" else "包/用户参数"}")
+            appendLine("强度 ${f(s.strength)}；灵敏度 ${f(s.sensitivity)}；满响应角 ${f(s.angle)}°；模式 ${s.mode} / 速度 ${f(s.speed)}；裁切 ${f(s.crop)}；${if (s.boosted) "本页检测幅度" else "包/用户参数"}")
             appendLine("估计本预览近远像素差：水平 ${f(s.estimatedNearFarPixelsX)} / 垂直 ${f(s.estimatedNearFarPixelsY)}（不是实测像素）")
             if (s.depthMax - s.depthMin < 16) appendLine("C 提示：深度变化很小/恒定；预期无法形成明显层间视差。")
             if (s.strength == 0f) appendLine("C 提示：强度为 0，任何视角输入都会静止。")

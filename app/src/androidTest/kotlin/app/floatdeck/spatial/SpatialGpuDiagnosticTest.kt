@@ -90,6 +90,58 @@ class SpatialGpuDiagnosticTest {
             } finally { renderer.release() }
         }
     }
+    @Test fun enhancedMotionPreservesCircularContourAndFarPlaneMoves() {
+        val prefs = context.getSharedPreferences("gpu-contour-${UUID.randomUUID()}", 0)
+        val image = android.graphics.Bitmap.createBitmap(720, 1280, android.graphics.Bitmap.Config.ARGB_8888)
+        val depth = android.graphics.Bitmap.createBitmap(720, 1280, android.graphics.Bitmap.Config.ARGB_8888)
+        image.eraseColor(android.graphics.Color.GREEN); depth.eraseColor(android.graphics.Color.rgb(16, 16, 16))
+        val paint = android.graphics.Paint().apply { color = android.graphics.Color.RED }
+        android.graphics.Canvas(image).drawCircle(360f, 640f, 120f, paint)
+        paint.color = android.graphics.Color.rgb(240, 240, 240)
+        android.graphics.Canvas(depth).drawCircle(360f, 640f, 120f, paint)
+        val files = listOf(image, depth).mapIndexed { index, bitmap ->
+            File(context.cacheDir, "contour-${UUID.randomUUID()}-$index.png").also { file ->
+                file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
+            }
+        }
+        prefs.edit().putString("image", files[0].path).putString("depth", files[1].path)
+            .putFloat("strength", 1f).putFloat("crop", 0.08f).putString("parallax_mode", "enhanced").commit()
+        try { withGl {
+            val renderer = SpatialRenderer(context, prefs)
+            renderer.onSurfaceCreated(null, null); renderer.onSurfaceChanged(null, 720, 1280)
+            fun contour(): IntArray {
+                renderer.onDrawFrame(null)
+                assertTrue(renderer.diagnostics.message, renderer.diagnostics.ready)
+                val pixels = ByteBuffer.allocateDirect(720 * 1280 * 4)
+                GL.glReadPixels(0, 0, 720, 1280, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
+                assertEquals(0, GL.glGetError())
+                var count = 0; var x0 = 720; var y0 = 1280; var x1 = 0; var y1 = 0
+                for (y in 0 until 1280) for (x in 0 until 720) {
+                    val i = (y * 720 + x) * 4
+                    if ((pixels.get(i).toInt() and 255) > 180 && (pixels.get(i + 1).toInt() and 255) < 80) {
+                        count++; x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y)
+                    }
+                }
+                return intArrayOf(count, x1-x0, y1-y0, (x1+x0)/2, (y1+y0)/2)
+            }
+            try {
+                renderer.forcedView = SpatialPose.Input()
+                val base = contour()
+                for (axis in 0..1) for (sign in listOf(-1f, 1f)) {
+                    renderer.forcedView = if (axis == 0) SpatialPose.Input(sign, 0f) else SpatialPose.Input(0f, sign)
+                    val moved = contour()
+                    assertTrue("Circle area stretched: ${moved.toList()}", abs(moved[0] - base[0]) < base[0] * 0.02)
+                    assertTrue("Circle width stretched", abs(moved[1] - base[1]) <= 3)
+                    assertTrue("Circle height stretched", abs(moved[2] - base[2]) <= 3)
+                    assertTrue("Full movement must be visible", abs(moved[3 + axis] - base[3 + axis]) > 35)
+                    val d = renderer.diagnostics
+                    assertTrue("Far plane must receive camera motion", abs(if (axis == 0) d.cameraX else d.cameraY) > 0f)
+                    assertEquals(43.2f, abs(if (axis == 0) d.estimatedNearFarPixelsX else d.estimatedNearFarPixelsY), 0.5f)
+                }
+            } finally { renderer.release() }
+        } } finally { files.forEach { it.delete() } }
+    }
+
     @Test fun samePathRecoversAfterTransientMissingDepthAndContextRecreationReloadsTextures() {
         val entry = import("diagnostic_3d")
         val prefs = context.getSharedPreferences("gpu-retry-${UUID.randomUUID()}", 0)

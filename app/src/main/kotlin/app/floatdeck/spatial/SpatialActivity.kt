@@ -36,6 +36,9 @@ class SpatialActivity : ComponentActivity() {
     private val buttons = mutableListOf<Button>()
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private lateinit var motionControls: SpatialMotionControls
+    private lateinit var metrics: TextView
+    private var lastMetrics = 0L
     private var selected: SpatialLibrary.Entry? = null
     private var busy = true
     private var generation = 0
@@ -54,6 +57,13 @@ class SpatialActivity : ComponentActivity() {
             renderer.tiltX = sensor.spatialInput.x
             renderer.tiltY = sensor.spatialInput.y
             preview.requestRender()
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (::metrics.isInitialized && now - lastMetrics >= 1500) {
+                lastMetrics = now
+                val d = renderer.diagnostics
+                val raw = sensor.spatialInput
+                metrics.text = "原始转向/俯仰/侧倾：%.1f° / %.1f° / %.1f°\n标准化输入：%.2f / %.2f；GPU 相机：%.4f / %.4f UV\n估计近远差：%.1f / %.1f px；%.1f FPS\n%s".format(java.util.Locale.US, raw.yawDegrees, raw.pitchDegrees, raw.bankDegrees, d.viewX, d.viewY, d.cameraX, d.cameraY, d.estimatedNearFarPixelsX, d.estimatedNearFarPixelsY, d.fps, d.limitReason)
+            }
             handler.postDelayed(this, 33L)
         }
     }
@@ -67,7 +77,7 @@ class SpatialActivity : ComponentActivity() {
             insets
         }
         setContentView(layout)
-        title = TextView(this).apply { id = R.id.spatial_title; text = "FloatDeck Spatial Wallpaper V1.1"; textSize = 20f }
+        title = TextView(this).apply { id = R.id.spatial_title; text = "FloatDeck Spatial Wallpaper V1.2"; textSize = 20f }
         layout.addView(title)
         status = TextView(this).apply { id = R.id.spatial_status; text = "导入购买或下载的空间壁纸 ZIP，即可预览并设置。" }
         val configuration = (getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager).deviceConfigurationInfo
@@ -97,18 +107,21 @@ class SpatialActivity : ComponentActivity() {
         } else {
             layout.addView(TextView(this).apply { text = "此设备不支持 OpenGL ES 3.0，无法播放空间壁纸。" }, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-        layout.addView(status)
+        val controls = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = android.widget.ScrollView(this).apply { addView(controls) }
+        layout.addView(scroll, LinearLayout.LayoutParams(-1, resources.displayMetrics.heightPixels / 2))
+        controls.addView(status)
         fun button(label: String, viewId: Int = android.view.View.NO_ID, action: () -> Unit) {
             val button = Button(this).apply { text = label; id = viewId; setOnClickListener { if (!busy) action() } }
             buttons.add(button)
-            layout.addView(button)
+            controls.addView(button)
         }
         button("导入空间壁纸 ZIP", R.id.spatial_import) {
             picker.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
         }
         button("已保存的空间壁纸 · 切换", R.id.spatial_library) { showLibrary() }
         strengthLabel = TextView(this)
-        layout.addView(strengthLabel)
+        controls.addView(strengthLabel)
         strength = SeekBar(this).apply {
             id = R.id.spatial_strength
             max = 100
@@ -118,7 +131,7 @@ class SpatialActivity : ComponentActivity() {
                     val value = progress / 100f
                     selected = selected!!.copy(strength = value)
                     SpatialPackageStore.previewPrefs(this@SpatialActivity).edit().putFloat("strength", value).apply()
-                    strengthLabel.text = "空间效果强度：$progress%"
+                    strengthLabel.text = "空间强度：$progress%"
                 }
                 override fun onStartTrackingTouch(bar: SeekBar?) {}
                 override fun onStopTrackingTouch(bar: SeekBar?) {
@@ -130,9 +143,13 @@ class SpatialActivity : ComponentActivity() {
                 }
             })
         }
-        layout.addView(strength)
+        controls.addView(strength)
         button("设为动态壁纸", R.id.spatial_apply) { applyWallpaper() }
         button("3D 效果检测", R.id.spatial_diagnostic_open) { startActivity(Intent(this, SpatialDiagnosticActivity::class.java)) }
+        motionControls = SpatialMotionControls(this, SpatialPackageStore.previewPrefs(this)) { sensor.recenterSpatial(); if (previewAvailable) renderer.recenter() }
+        controls.addView(motionControls)
+        metrics = TextView(this).apply { textSize = 12f }
+        controls.addView(metrics)
         button("更多：原版动态壁纸 / 高级工具 / 时钟预览") {
             android.app.AlertDialog.Builder(this).setItems(arrayOf("普通动态壁纸（原版）", "高级技术工具", "已有景深时钟预览")) { _, which ->
                 when (which) {
@@ -148,14 +165,14 @@ class SpatialActivity : ComponentActivity() {
         layout.addView(TextView(this).apply { text = "桌面或锁屏应用范围以系统选择器为准。仅选择预览不会替换当前壁纸。"; textSize = 12f })
         task("正在读取壁纸库…") {
             val entry = SpatialPackageStore.library(this).selected()
-            if (entry != null) SpatialPackageStore.publish(entry, SpatialPackageStore.previewPrefs(this), false)
+            if (entry != null) SpatialPackageStore.publish(entry, SpatialPackageStore.previewPrefs(this), false, this)
             entry to if (entry == null) "点击导入空间壁纸 ZIP 开始使用。" else "已恢复：${entry.manifest.name}。倾斜手机预览。"
         }
     }
 
     private fun select(id: String): SpatialLibrary.Entry {
         val entry = SpatialPackageStore.library(this).select(id)
-        SpatialPackageStore.publish(entry, SpatialPackageStore.previewPrefs(this), false)
+        SpatialPackageStore.publish(entry, SpatialPackageStore.previewPrefs(this), false, this)
         return entry
     }
 
@@ -196,7 +213,7 @@ class SpatialActivity : ComponentActivity() {
             runCatching { startActivity(SpatialWallpaperIntent.create(this)) }.onFailure { status.text = "系统未提供动态壁纸选择器：${it.message}" }
         }) {
             SpatialPackageStore.library(this).setStrength(entry.id, entry.strength)
-            SpatialPackageStore.publish(entry, SpatialAssets.prefs(this), true)
+            SpatialPackageStore.publish(entry, SpatialAssets.prefs(this), true, this)
             entry to "请在系统预览中确认应用；桌面/锁屏范围由系统提供。"
         }
     }
@@ -216,9 +233,10 @@ class SpatialActivity : ComponentActivity() {
                 strength.isEnabled = true
                 result.onSuccess { (entry, text) ->
                     selected = entry
-                    title.text = entry?.manifest?.name ?: "FloatDeck Spatial Wallpaper V1.1"
+                    motionControls.refresh()
+                    title.text = entry?.manifest?.name ?: "FloatDeck Spatial Wallpaper V1.2"
                     strength.progress = ((entry?.strength ?: 0.5f) * 100).toInt()
-                    strengthLabel.text = "空间效果强度：${strength.progress}%"
+                    strengthLabel.text = "空间强度：${strength.progress}%"
                     status.text = text
                     if (previewAvailable) preview.requestRender()
                     after?.invoke()

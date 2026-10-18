@@ -28,6 +28,28 @@ class SpatialPlayerIntegrationTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private lateinit var context: Context
 
+    @Test fun motionOverridesSurviveRepublishAndMatchPreviewAndWallpaper() {
+        val base = instrumentation.targetContext
+        val archive = sample("sunrise")
+        val original = SpatialPackageStore.library(context).importArchive(archive).entry
+        val entry = original.copy(id = "motion-${UUID.randomUUID()}")
+        val preview = base.getSharedPreferences("motion-preview-${UUID.randomUUID()}", 0)
+        val wallpaper = base.getSharedPreferences("motion-wallpaper-${UUID.randomUUID()}", 0)
+        SpatialPackageStore.publish(entry, preview, false, base)
+        SpatialMotionSettings.set(base, preview, "sensitivity", 2.5f)
+        SpatialMotionSettings.set(base, preview, "response_speed", 0.9f)
+        SpatialMotionSettings.setMode(base, preview, "enhanced")
+        SpatialPackageStore.publish(entry, wallpaper, true, base)
+        SpatialPackageStore.publish(entry, preview, false, base)
+        for (prefs in listOf(preview, wallpaper)) {
+            assertEquals(2.5f, prefs.getFloat("sensitivity", 0f), 0.0001f)
+            assertEquals(0.9f, prefs.getFloat("response_speed", 0f), 0.0001f)
+            assertEquals("enhanced", prefs.getString("parallax_mode", ""))
+        }
+        assertTrue(wallpaper.getBoolean("enabled", false))
+        assertFalse(preview.getBoolean("enabled", true))
+    }
+
     @Before fun setup() {
         val base = instrumentation.targetContext
         val testRoot = File(base.cacheDir, "integration-${UUID.randomUUID()}").apply { mkdirs() }

@@ -233,37 +233,58 @@ object Shaders {
         uniform sampler2D uDepth;
         uniform vec2 uCover;
         uniform vec2 uMotion;
+        uniform vec2 uCamera;
+        uniform vec2 uDepthRange;
+        uniform vec2 uTexel;
+        uniform float uSurfaceTolerance;
         uniform sampler2D uClock;
         uniform sampler2D uMask;
         uniform int uClockEnabled;
         in vec2 vUV;
         out vec4 fragColor;
+        float depthAt(vec2 uv) {
+            float span = uDepthRange.y - uDepthRange.x;
+            if (span < 1.0 / 255.0) return 0.5;
+            return clamp((texture(uDepth, clamp(uv, uTexel, 1.0-uTexel)).r-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
+        }
         void main() {
-            vec2 base = (vUV - 0.5) * uCover + 0.5;
+            // Camera offset moves even the far plane. Relative depth remains continuous.
+            vec2 base = (vUV - 0.5) * uCover + 0.5 - uCamera;
             vec2 uv = base;
             float previous = 1.0;
             bool hit = false;
-            // White = near. March near to far, then refine the first crossing.
-            for (int i = 0; i <= 24; ++i) {
-                float z = 1.0 - float(i) / 24.0;
+            for (int i = 0; i <= 32; ++i) {
+                float z = 1.0 - float(i) / 32.0;
                 vec2 candidate = base - uMotion * z;
-                float depth = texture(uDepth, candidate).r;
+                float depth = depthAt(candidate);
                 if (depth >= z) {
                     float lo = z;
                     float hi = previous;
-                    for (int j = 0; j < 4; ++j) {
+                    for (int j = 0; j < 5; ++j) {
                         float mid = (lo + hi) * 0.5;
-                        if (texture(uDepth, base - uMotion * mid).r >= mid) lo = mid;
+                        if (depthAt(base - uMotion * mid) >= mid) lo = mid;
                         else hi = mid;
                     }
-                    uv = base - uMotion * ((lo + hi) * 0.5);
-                    hit = true;
-                    break;
+                    float surface = (lo + hi) * 0.5;
+                    vec2 intersection = base - uMotion * surface;
+                    // A depth discontinuity is not a real connecting surface: do not
+                    // stretch a face/pearl/background texel across the vertical wall.
+                    if (abs(depthAt(intersection) - surface) <= uSurfaceTolerance) {
+                        uv = intersection; hit = true; break;
+                    }
                 }
                 previous = z;
             }
-            // Bounded local fallback only; unseen background cannot be reconstructed.
-            if (!hit) uv = base;
+            // Bounded fallback: choose the least inconsistent of actual source samples.
+            // No invented content. Unseen backgrounds still cannot be recovered.
+            if (!hit) {
+                float sourceDepth = depthAt(base);
+                vec2 local = base - uMotion * sourceDepth;
+                vec2 farSample = base;
+                float localError = abs(depthAt(local) - sourceDepth);
+                float farError = depthAt(farSample);
+                uv = localError <= farError ? local : farSample;
+            }
             vec3 color = texture(uImage, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
             if (uClockEnabled == 1) {
                 vec4 clock = texture(uClock, vUV);

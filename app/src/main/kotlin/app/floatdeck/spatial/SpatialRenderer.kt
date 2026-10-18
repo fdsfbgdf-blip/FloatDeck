@@ -31,7 +31,12 @@ class SpatialRenderer(
     private var x = 0f
     private var y = 0f
     private var last = 0L
+    private var fpsStart = 0L
+    private var fpsFrames = 0
+    private var fps = 0f
     private var ready = false
+    @Volatile private var resetView = false
+    fun recenter() { resetView = true }
     @Volatile var forcedView: SpatialPose.Input? = null
     @Volatile var diagnosticBoost = false
     @Volatile var diagnostics = SpatialRenderStatus()
@@ -50,7 +55,7 @@ class SpatialRenderer(
             0
         }
         uniforms.clear()
-        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
+        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
         textures.fill(0)
         clockTextures.fill(0)
         minute = -1L
@@ -59,6 +64,7 @@ class SpatialRenderer(
         ready = false
         failedSignature = ""
         retryAt = 0L
+        x = 0f; y = 0f; last = 0L; fpsStart = 0L; fpsFrames = 0; fps = 0f
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -110,8 +116,8 @@ class SpatialRenderer(
                             }
                             GL.glActiveTexture(GL.GL_TEXTURE0 + index)
                             GL.glBindTexture(GL.GL_TEXTURE_2D, textures[index])
-                            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-                            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+                            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, if (index == 1) GL.GL_NEAREST else GL.GL_LINEAR)
+                            GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, if (index == 1) GL.GL_NEAREST else GL.GL_LINEAR)
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE)
                             GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)
                             GLUtils.texImage2D(GL.GL_TEXTURE_2D, 0, bitmap, 0)
@@ -131,21 +137,35 @@ class SpatialRenderer(
             }
         }
         if (!ready) return
+        if (resetView || now - last > 500_000_000L) { x = 0f; y = 0f; resetView = false; fpsStart = 0L; fpsFrames = 0 }
         val dt = if (last == 0L) 0.033f else ((now - last) / 1e9f).coerceIn(0f, 0.1f)
         last = now
-        val alpha = 1f - kotlin.math.exp(-dt * 10f)
         val forced = forcedView
-        if (forced != null) {
-            x = forced.x.coerceIn(-1f, 1f)
-            y = forced.y.coerceIn(-1f, 1f)
-        } else {
-            x += (tiltX - x) * alpha
-            y += (tiltY - y) * alpha
-        }
         val strength = if (diagnosticBoost) 1f else (state["strength"] as? Float ?: 0.5f)
         val sensitivity = if (diagnosticBoost) 1f else (state["sensitivity"] as? Float ?: 1f)
-        val angle = if (diagnosticBoost) 15f else (state["angle"] as? Float ?: 8f)
+        val angle = if (diagnosticBoost) 12f else (state["angle"] as? Float ?: 8f)
+        val speed = state["response_speed"] as? Float ?: 0.65f
+        val mode = if (diagnosticBoost) "enhanced" else (state["parallax_mode"] as? String ?: "standard")
+        val alpha = SpatialMath.smoothing(dt, speed)
+        if (forced != null) {
+            x = forced.x.coerceIn(-1f, 1f); y = forced.y.coerceIn(-1f, 1f)
+        } else {
+            val targetX = SpatialMath.response(tiltX, sensitivity, angle)
+            val targetY = SpatialMath.response(tiltY, sensitivity, angle)
+            x += (targetX - x) * alpha; y += (targetY - y) * alpha
+        }
         val cover = SpatialMath.cover(aspect, width.toFloat() / height, (state["crop"] as? Float ?: 0.04f))
+        val requested = SpatialMath.amplitude(strength, mode)
+        val amplitude = SpatialMath.safeAmplitude(requested, cover, width, height, diagnostics.imageWidth, diagnostics.imageHeight)
+        val mx = x * amplitude
+        val my = y * amplitude * width / height
+        val depthSpan = SpatialMath.normalizedDepth(diagnostics.depthMax / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f) -
+            SpatialMath.normalizedDepth(diagnostics.depthMin / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
+        if (fpsStart == 0L) fpsStart = now
+        fpsFrames++
+        if (now - fpsStart >= 500_000_000L) {
+            fps = fpsFrames * 1e9f / (now - fpsStart); fpsStart = now; fpsFrames = 0
+        }
         GL.glDisable(GL.GL_BLEND)
         GL.glDisable(GL.GL_DEPTH_TEST)
         GL.glUseProgram(program)
@@ -160,9 +180,11 @@ class SpatialRenderer(
         GL.glUniform1i(uniforms.getValue("uImage"), 0)
         GL.glUniform1i(uniforms.getValue("uDepth"), 1)
         GL.glUniform2f(uniforms.getValue("uCover"), cover[0], cover[1])
-        val mx = SpatialMath.motion(x, sensitivity, angle, strength)
-        val my = SpatialMath.motion(y, sensitivity, angle, strength)
         GL.glUniform2f(uniforms.getValue("uMotion"), mx * cover[0], my * cover[1])
+        GL.glUniform2f(uniforms.getValue("uCamera"), mx * cover[0] * SpatialMath.CAMERA_SHARE, my * cover[1] * SpatialMath.CAMERA_SHARE)
+        GL.glUniform2f(uniforms.getValue("uDepthRange"), diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
+        GL.glUniform2f(uniforms.getValue("uTexel"), 1f / diagnostics.depthWidth, 1f / diagnostics.depthHeight)
+        GL.glUniform1f(uniforms.getValue("uSurfaceTolerance"), if (mode == "stable") 0.025f else 0.045f)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
         diagnostics = diagnostics.copy(
@@ -170,8 +192,11 @@ class SpatialRenderer(
             message = if (drawError == GL.GL_NO_ERROR) "空间 GPU 高度场绘制正常；GL=0" else "绘制错误 GL=0x${drawError.toString(16)}",
             frames = diagnostics.frames + 1, lastFrameNanos = now,
             viewX = x, viewY = y, motionX = mx * cover[0], motionY = my * cover[1],
-            estimatedNearFarPixelsX = mx * (diagnostics.depthMax - diagnostics.depthMin) / 255f * width,
-            estimatedNearFarPixelsY = my * (diagnostics.depthMax - diagnostics.depthMin) / 255f * height,
+            estimatedNearFarPixelsX = mx * depthSpan * width,
+            estimatedNearFarPixelsY = my * depthSpan * height,
+            cameraX = mx * cover[0] * SpatialMath.CAMERA_SHARE, cameraY = my * cover[1] * SpatialMath.CAMERA_SHARE,
+            fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f,
+            limitReason = if (amplitude + 0.00001f < requested) "裁切余量不足，已限幅" else if (depthSpan < 0.99f) "深度变化不足，避免放大深度噪声" else "当前裁切余量可用；断层局部回退仍可能降低位移",
             strength = strength, sensitivity = sensitivity, angle = angle,
             crop = state["crop"] as? Float ?: 0.04f, forced = forced != null, boosted = diagnosticBoost,
         )

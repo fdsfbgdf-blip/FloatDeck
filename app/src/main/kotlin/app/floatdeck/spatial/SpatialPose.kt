@@ -33,7 +33,7 @@ class SpatialPose {
         val bank = Math.toDegrees(atan2(rightY.toDouble(), rightX.toDouble())).toFloat()
         // Support both looking left/right (yaw) and tipping the side edges (bank).
         // Pure yaw fixes the gravity blind spot; bank preserves the usual tilt gesture.
-        input = Input(((yaw - bank) / 20f).coerceIn(-1f, 1f), (pitch / 20f).coerceIn(-1f, 1f), yaw, pitch, bank)
+        input = Input(((yaw - bank) / 12f).coerceIn(-1f, 1f), (pitch / 12f).coerceIn(-1f, 1f), yaw, pitch, bank)
         return input
     }
 }

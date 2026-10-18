@@ -29,7 +29,7 @@ object SpatialPackageStore {
     }
 
     /** One SharedPreferences commit exposes paths and parameters as a complete snapshot. */
-    fun publish(entry: SpatialLibrary.Entry, prefs: SharedPreferences, enableWallpaper: Boolean) {
+    fun publish(entry: SpatialLibrary.Entry, prefs: SharedPreferences, enableWallpaper: Boolean, context: Context? = null) {
         val manifest = entry.manifest
         val edit = prefs.edit()
             .putString("package_id", entry.id)
@@ -43,6 +43,8 @@ object SpatialPackageStore {
             .putFloat("crop", manifest.crop)
             .putBoolean("enabled", enableWallpaper)
         if (manifest.mask == null) edit.remove("mask") else edit.putString("mask", File(entry.directory, "mask.png").path)
+        if (context != null) SpatialMotionSettings.publish(context, entry.id, edit, manifest.sensitivity)
+        else edit.putFloat("response_speed", 0.65f).putString("parallax_mode", "standard")
         check(edit.commit()) { "保存壁纸设置失败" }
     }
 

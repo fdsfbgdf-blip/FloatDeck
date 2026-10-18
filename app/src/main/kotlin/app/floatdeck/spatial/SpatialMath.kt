@@ -1,11 +1,33 @@
 package app.floatdeck.spatial
 
-import kotlin.math.sin
 
 /** Shared pure geometry. Depth is inverse distance: black far, white near. */
 object SpatialMath {
+    // V1 package angle now describes the full response angle, not a second amplitude multiplier.
+    fun response(tilt: Float, sensitivity: Float, angle: Float): Float {
+        val v = (tilt * 12f * sensitivity.coerceIn(0.25f, 3f) / angle.coerceIn(6f, 15f)).coerceIn(-1f, 1f)
+        return (kotlin.math.tanh(v * 1.2f) / kotlin.math.tanh(1.2f))
+    }
+    fun amplitude(strength: Float, mode: String): Float = strength.coerceIn(0f, 1f) * when (mode) {
+        "stable" -> 0.03f
+        "enhanced" -> 0.06f
+        else -> 0.045f
+    }
     fun motion(tilt: Float, sensitivity: Float, angle: Float, strength: Float): Float =
-        (tilt * sensitivity).coerceIn(-1f, 1f) * sin(Math.toRadians(angle.coerceIn(1f, 15f).toDouble())).toFloat() * strength.coerceIn(0f, 1f) * 0.16f
+        response(tilt, sensitivity, angle) * amplitude(strength, "standard")
+
+    fun smoothing(dt: Float, speed: Float): Float =
+        1f - kotlin.math.exp(-dt.coerceIn(0f, 0.1f) / (0.22f - 0.19f * speed.coerceIn(0f, 1f)))
+
+    const val CAMERA_SHARE = 0.30f
+    // All offsets expressed in visible-screen units. Reserve a source texel at each edge.
+    fun safeAmplitude(requested: Float, cover: FloatArray, width: Int, height: Int, imageWidth: Int, imageHeight: Int): Float {
+        val x = ((0.5f - 1f / imageWidth.coerceAtLeast(2)) / cover[0] - 0.5f).coerceAtLeast(0f)
+        val y = ((0.5f - 1f / imageHeight.coerceAtLeast(2)) / cover[1] - 0.5f).coerceAtLeast(0f) * height / width.coerceAtLeast(1)
+        return minOf(requested, x / (1f + CAMERA_SHARE), y / (1f + CAMERA_SHARE))
+    }
+    fun normalizedDepth(depth: Float, min: Float, max: Float): Float =
+        if (max - min < 1f / 255f) 0.5f else ((depth - min) / maxOf(0.15f, max - min)).coerceIn(0f, 1f)
 
     fun cover(imageAspect: Float, screenAspect: Float, crop: Float): FloatArray {
         val margin = 1f / (1.10f + crop.coerceIn(0f, 0.3f))
