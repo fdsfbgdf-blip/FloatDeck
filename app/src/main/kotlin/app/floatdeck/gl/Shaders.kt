@@ -229,8 +229,8 @@ object Shaders {
     val spatialFragment = """
         #version 300 es
         precision highp float;
-        uniform sampler2D uImage;
-        uniform sampler2D uDepth;
+        uniform highp sampler2D uImage;
+        uniform highp sampler2D uDepth;
         uniform vec2 uCover;
         uniform vec2 uMotion;
         uniform vec2 uCamera;
@@ -245,7 +245,11 @@ object Shaders {
         float depthAt(vec2 uv) {
             float span = uDepthRange.y - uDepthRange.x;
             if (span < 1.0 / 255.0) return 0.5;
-            return clamp((texture(uDepth, clamp(uv, uTexel, 1.0-uTexel)).r-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
+            ivec2 size = textureSize(uDepth, 0);
+            ivec2 exact = clamp(ivec2(clamp(uv, uTexel, 1.0-uTexel) * vec2(size)), ivec2(0), size-1);
+            // Use identical integer addressing for visibility and source color.
+            float value = texelFetch(uDepth, exact, 0).r;
+            return clamp((value-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
         }
         vec3 imageAt(vec2 uv) {
             ivec2 size = textureSize(uDepth, 0);
