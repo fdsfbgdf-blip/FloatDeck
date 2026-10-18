@@ -5,8 +5,12 @@ package app.floatdeck.spatial
 object SpatialMath {
     // V1 package angle now describes the full response angle, not a second amplitude multiplier.
     fun response(tilt: Float, sensitivity: Float, angle: Float): Float {
-        val v = (tilt * SpatialPose.NORMALIZATION_DEGREES * sensitivity.coerceIn(0.25f, 3f) / angle.coerceIn(6f, 15f)).coerceIn(-1f, 1f)
-        return (kotlin.math.tanh(v * 1.2f) / kotlin.math.tanh(1.2f))
+        val v = (tilt * SpatialPose.NORMALIZATION_DEGREES / angle.coerceIn(6f, 15f)).coerceIn(-1f, 1f)
+        val m = kotlin.math.abs(v)
+        // Sensitivity changes initial gain, but every setting reaches the same cap.
+        // Unlike multiplication before clipping, low sensitivity cannot shrink the cap.
+        val curved = m / (m + (1f-m) / sensitivity.coerceIn(0.25f, 3f))
+        return kotlin.math.sign(v) * kotlin.math.tanh(curved * 1.2f) / kotlin.math.tanh(1.2f)
     }
     fun amplitude(strength: Float, mode: String): Float = strength.coerceIn(0f, 1f) * when (mode) {
         "stable" -> 0.03f
