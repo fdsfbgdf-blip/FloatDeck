@@ -65,3 +65,9 @@ safeAmplitude() 保留相同几何限制：全近景加 30% 相机偏移必须�
 - [实际 48 行 CSV、Android 报告及截图](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39109197862/artifacts/12129404341)：work/android-smoke/strength-comparison.csv。
 
 真机比较前关闭“明显检测幅度”（否则会固定增强 100%），关闭紫色着色观察正常画面，固定强制视角后比较 50% / 100%；再按需开启紫色排查回退，恢复陀螺仪测试真实手持及桌面。没有物理手机/真人壁纸验证，不能标记实际视觉效果合格。
+
+### 直接旧版 / 新版 Shader 对照
+
+另从旧提交 eaabcdc 取原生产 Shaders.kt，与本次 Shader 在同一 Mesa ES3 软件驱动中直接编译回读，使用同一份 Android 合成圆形 PNG、相同深度修整、720×1280 视口及 ±0.6 输入。三模式、两种裁切、四个方向共 72 条测量：新版 50% 与旧版 100% 圆心位移逐项一致。crop=0.30 时旧100% / 新100% 分别为 stable 17/34px、standard 25/50.5px、enhanced 34/67px；crop=0.04 时分别为 17/29.5px、25/29.5px、29.5/29.5px。该对照为实际软件 OpenGL 回读，不是旧 APK/新 APK 的手机对照；浮点/整数外接框量化不同于 Android CSV，均在测试容差内。
+
+[完整旧新 Shader 回读 CSV](reports/spatial-strength-old-new-mesa.csv)。请求及安全上限同时记录，裁切配置在每个旧/新对照内保持一致，没有通过改变缩放取得翻倍结论。
