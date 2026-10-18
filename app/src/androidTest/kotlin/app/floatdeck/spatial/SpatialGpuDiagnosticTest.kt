@@ -131,8 +131,11 @@ class SpatialGpuDiagnosticTest {
                     renderer.forcedView = if (axis == 0) SpatialPose.Input(sign, 0f) else SpatialPose.Input(0f, sign)
                     val moved = contour()
                     assertTrue("Circle area stretched: ${moved.toList()}", abs(moved[0] - base[0]) < base[0] * 0.02)
-                    assertTrue("Circle width stretched axis=$axis sign=$sign base=${base.toList()} moved=${moved.toList()}", abs(moved[1] - base[1]) <= 3)
-                    assertTrue("Circle height stretched axis=$axis sign=$sign base=${base.toList()} moved=${moved.toList()}", abs(moved[2] - base[2]) <= 3)
+                    if (abs(moved[1] - base[1]) > 3 || abs(moved[2] - base[2]) > 3) {
+                        // Procedural fixture only: preserve exact Android rasterizer inputs on failure.
+                        val inputs = files.map { android.util.Base64.encodeToString(it.readBytes(), android.util.Base64.NO_WRAP) }
+                        fail("Circle stretched axis=$axis sign=$sign base=${base.toList()} moved=${moved.toList()} levels=${renderer.diagnostics.depthLevels} imagePNG=${inputs[0]} depthPNG=${inputs[1]}")
+                    }
                     assertTrue("Full movement must be visible", abs(moved[3 + axis] - base[3 + axis]) > 35)
                     val d = renderer.diagnostics
                     assertTrue("Far plane must receive camera motion", abs(if (axis == 0) d.cameraX else d.cameraY) > 0f)
