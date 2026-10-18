@@ -5,6 +5,7 @@ import kotlin.math.sqrt
 
 /** Relative screen-frame attitude, unlike gravity-only projection this observes upright yaw. */
 class SpatialPose {
+    companion object { const val NORMALIZATION_DEGREES = 15f }
     data class Input(val x: Float = 0f, val y: Float = 0f, val yawDegrees: Float = 0f, val pitchDegrees: Float = 0f, val bankDegrees: Float = 0f)
     private var baseline: FloatArray? = null
     private var rotation = -1
@@ -33,7 +34,7 @@ class SpatialPose {
         val bank = Math.toDegrees(atan2(rightY.toDouble(), rightX.toDouble())).toFloat()
         // Support both looking left/right (yaw) and tipping the side edges (bank).
         // Pure yaw fixes the gravity blind spot; bank preserves the usual tilt gesture.
-        input = Input(((yaw - bank) / 12f).coerceIn(-1f, 1f), (pitch / 12f).coerceIn(-1f, 1f), yaw, pitch, bank)
+        input = Input(((yaw - bank) / NORMALIZATION_DEGREES).coerceIn(-1f, 1f), (pitch / NORMALIZATION_DEGREES).coerceIn(-1f, 1f), yaw, pitch, bank)
         return input
     }
 }

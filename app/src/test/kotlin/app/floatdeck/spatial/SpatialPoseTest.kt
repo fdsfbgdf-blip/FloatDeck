@@ -25,7 +25,7 @@ class SpatialPoseTest {
             assertEquals(0f, matrix[8], 0.0001f)
             val result = pose.update(matrix, 0)
             assertEquals(angle, result.yawDegrees, 0.001f)
-            assertEquals((angle / 12f).coerceIn(-1f, 1f), result.x, 0.001f)
+            assertEquals((angle / SpatialPose.NORMALIZATION_DEGREES).coerceIn(-1f, 1f), result.x, 0.001f)
         }
     }
     @Test fun `relative pitch responds in both directions independent of neutral orientation`() {
@@ -48,7 +48,7 @@ class SpatialPoseTest {
             val pose = SpatialPose(); pose.update(upright, 0)
             val result = pose.update(multiply(upright, roll), 0)
             assertEquals(angle, result.bankDegrees, 0.001f)
-            assertEquals((-angle / 12f).coerceIn(-1f, 1f), result.x, 0.001f)
+            assertEquals((-angle / SpatialPose.NORMALIZATION_DEGREES).coerceIn(-1f, 1f), result.x, 0.001f)
         }
     }
     @Test fun `large pose is bounded and zero motion stays neutral`() {

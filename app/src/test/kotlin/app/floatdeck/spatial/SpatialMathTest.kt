@@ -28,11 +28,12 @@ class SpatialMathTest {
         }
     }
     @Test fun `small natural tilt responds without changing amplitude cap`() {
-        val low = SpatialMath.response(3f / 12f, 0.5f, 8f)
-        val high = SpatialMath.response(3f / 12f, 2f, 8f)
+        val low = SpatialMath.response(3f / SpatialPose.NORMALIZATION_DEGREES, 0.5f, 8f)
+        val high = SpatialMath.response(3f / SpatialPose.NORMALIZATION_DEGREES, 2f, 8f)
         assertTrue(low > 0.2f && high > low)
-        assertTrue(SpatialMath.response(10f / 12f, 1f, 8f) > 0.99f)
+        assertTrue(SpatialMath.response(10f / SpatialPose.NORMALIZATION_DEGREES, 1f, 8f) > 0.99f)
         assertEquals(1f, SpatialMath.response(1f, 3f, 8f), 0.00001f)
+        assertEquals(1f, SpatialMath.response(15f / SpatialPose.NORMALIZATION_DEGREES, 1f, 15f), 0.00001f)
         for (v in -100..100) assertEquals(-SpatialMath.response(v / 100f, 1f, 8f), SpatialMath.response(-v / 100f, 1f, 8f), 0.00001f)
     }
     @Test fun `target ranges cover three to six percent and limits reserve a source texel`() {
