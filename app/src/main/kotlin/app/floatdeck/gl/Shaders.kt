@@ -247,6 +247,24 @@ object Shaders {
             if (span < 1.0 / 255.0) return 0.5;
             return clamp((texture(uDepth, clamp(uv, uTexel, 1.0-uTexel)).r-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
         }
+        vec3 imageAt(vec2 uv) {
+            ivec2 size = textureSize(uDepth, 0);
+            vec2 p = clamp(uv, uTexel, 1.0-uTexel) * vec2(size) - 0.5;
+            ivec2 a = clamp(ivec2(floor(p)), ivec2(0), size-1);
+            ivec2 b = min(a+1, size-1);
+            float d0 = texelFetch(uDepth, a, 0).r;
+            float d1 = texelFetch(uDepth, ivec2(b.x,a.y), 0).r;
+            float d2 = texelFetch(uDepth, ivec2(a.x,b.y), 0).r;
+            float d3 = texelFetch(uDepth, b, 0).r;
+            float range = max(max(d0,d1),max(d2,d3))-min(min(d0,d1),min(d2,d3));
+            if (range > max(0.15, uDepthRange.y-uDepthRange.x) * 0.12) {
+                // Do not bilinearly leak foreground color onto a far-depth sample.
+                // This is source-pixel selection only, not blur or content synthesis.
+                ivec2 exact = clamp(ivec2(uv * vec2(size)), ivec2(0), size-1);
+                return texelFetch(uImage, exact, 0).rgb;
+            }
+            return texture(uImage, uv).rgb;
+        }
         void main() {
             // Camera offset moves even the far plane. Relative depth remains continuous.
             vec2 base = (vUV - 0.5) * uCover + 0.5 - uCamera;
@@ -285,7 +303,7 @@ object Shaders {
                 float farError = depthAt(farSample);
                 uv = localError <= farError ? local : farSample;
             }
-            vec3 color = texture(uImage, clamp(uv, vec2(0.001), vec2(0.999))).rgb;
+            vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
             if (uClockEnabled == 1) {
                 vec4 clock = texture(uClock, vUV);
                 float mask = texture(uMask, uv).r;

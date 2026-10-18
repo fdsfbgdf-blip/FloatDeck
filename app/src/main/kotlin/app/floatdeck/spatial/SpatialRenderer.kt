@@ -184,7 +184,7 @@ class SpatialRenderer(
         GL.glUniform2f(uniforms.getValue("uCamera"), mx * cover[0] * SpatialMath.CAMERA_SHARE, my * cover[1] * SpatialMath.CAMERA_SHARE)
         GL.glUniform2f(uniforms.getValue("uDepthRange"), diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
         GL.glUniform2f(uniforms.getValue("uTexel"), 1f / diagnostics.depthWidth, 1f / diagnostics.depthHeight)
-        GL.glUniform1f(uniforms.getValue("uSurfaceTolerance"), if (mode == "stable") 0.025f else 0.045f)
+        GL.glUniform1f(uniforms.getValue("uSurfaceTolerance"), if (mode == "stable") 0.002f else 0.004f)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
         diagnostics = diagnostics.copy(
