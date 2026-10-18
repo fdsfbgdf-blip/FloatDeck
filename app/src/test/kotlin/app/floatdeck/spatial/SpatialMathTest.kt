@@ -20,8 +20,9 @@ class SpatialMathTest {
         assertEquals(0f, SpatialMath.motion(1f, 3f, 15f, 0f))
     }
     @Test fun `bounded motion stays within crop margin`() {
-        val m = kotlin.math.abs(SpatialMath.motion(100f, 3f, 90f, 10f))
-        assertTrue(m <= 0.045f)
+        val request = kotlin.math.abs(SpatialMath.motion(100f, 3f, 90f, 10f))
+        val m = SpatialMath.safeAmplitude(request, SpatialMath.cover(0.5f, 0.5f, 0f), 720, 1280, 720, 1280)
+        assertTrue(m <= 0.09f)
         for (aspect in listOf(0.5f, 1f, 2f)) {
             val c = SpatialMath.cover(aspect, 0.5f, 0f)
             for (v in c) assertTrue(v * (0.5f + m) <= 0.5f)
@@ -37,12 +38,12 @@ class SpatialMathTest {
             assertEquals(1f, SpatialMath.response(15f / SpatialPose.NORMALIZATION_DEGREES, sensitivity, 15f), 0.00001f)
         for (v in -100..100) assertEquals(-SpatialMath.response(v / 100f, 1f, 8f), SpatialMath.response(-v / 100f, 1f, 8f), 0.00001f)
     }
-    @Test fun `target ranges cover three to six percent and limits reserve a source texel`() {
-        assertEquals(0.03f, SpatialMath.amplitude(1f, "stable"))
-        assertEquals(0.06f, SpatialMath.amplitude(1f, "enhanced"))
+    @Test fun `target ranges cover six to twelve percent and limits reserve a source texel`() {
+        assertEquals(0.06f, SpatialMath.amplitude(1f, "stable"))
+        assertEquals(0.12f, SpatialMath.amplitude(1f, "enhanced"))
         for (aspect in listOf(0.35f, 0.56f, 1f, 2f)) for (crop in listOf(0f, 0.04f, 0.3f)) {
             val cover = SpatialMath.cover(aspect, 0.56f, crop)
-            val a = SpatialMath.safeAmplitude(0.06f, cover, 720, 1280, 720, 1280)
+            val a = SpatialMath.safeAmplitude(0.12f, cover, 720, 1280, 720, 1280)
             assertTrue(cover[0] * (0.5f + a * 1.3f) <= 0.5f - 1f / 720 + 0.00001f)
             assertTrue(cover[1] * (0.5f + a * 1.3f * 720 / 1280) <= 0.5f - 1f / 1280 + 0.00001f)
         }
@@ -61,6 +62,21 @@ class SpatialMathTest {
         assertEquals(0f, SpatialMath.normalizedDepth(0.2f, 0.2f, 0.9f))
         assertEquals(1f, SpatialMath.normalizedDepth(0.9f, 0.2f, 0.9f))
         assertTrue(SpatialMath.normalizedDepth(0.51f, 0.5f, 0.51f) < 0.1f)
+    }
+    @Test fun `all modes double request linearly and half strength equals old full strength`() {
+        for ((mode, old) in listOf("stable" to 0.03f, "standard" to 0.045f, "enhanced" to 0.06f)) {
+            assertEquals(0f, SpatialMath.amplitude(0f, mode))
+            assertEquals(old, SpatialMath.amplitude(0.5f, mode), 0.000001f)
+            assertEquals(2f * old, SpatialMath.amplitude(1f, mode), 0.000001f)
+            for (i in 0..100) assertEquals(2f * old * i / 100f, SpatialMath.amplitude(i / 100f, mode), 0.000001f)
+        }
+    }
+    @Test fun `unchanged crop limits doubled request without increasing cover zoom`() {
+        val cover = SpatialMath.cover(720f/1280, 720f/1280, 0.04f)
+        val cap = SpatialMath.safeAmplitude(0.12f, cover, 720, 1280, 720, 1280)
+        assertTrue(cap in 0.052f..0.054f)
+        assertEquals(cap, SpatialMath.safeAmplitude(0.09f, cover, 720, 1280, 720, 1280))
+        assertTrue(SpatialMath.safeAmplitude(0.12f, SpatialMath.cover(720f/1280, 720f/1280, 0.3f), 720, 1280, 720, 1280) > 0.119f)
     }
     @Test fun `aspect cover preserves source aspect without stretching`() {
         val c = SpatialMath.cover(2f, 0.5f, 0f)

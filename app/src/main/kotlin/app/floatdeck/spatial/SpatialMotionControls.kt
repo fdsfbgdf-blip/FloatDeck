@@ -53,7 +53,7 @@ class SpatialMotionControls(context: Context, private val prefs: SharedPreferenc
         speed = slider("视角响应速度（高更快）", "response_speed", 0f, 1f)
         addView(TextView(context).apply { text = "视差模式（满强度目标近远差，按屏幕宽度）：" })
         spinner = Spinner(context).apply {
-            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("稳定 · 3%", "标准 · 4.5%", "增强 · 6%"))
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("稳定 · 6%", "标准 · 9%", "增强 · 12%"))
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
@@ -63,7 +63,7 @@ class SpatialMotionControls(context: Context, private val prefs: SharedPreferenc
         }
         addView(spinner)
         addView(Button(context).apply { text = "重新居中"; setOnClickListener { recenter() } })
-        addView(TextView(context).apply { text = "灵敏度只影响倾斜响应；强度控制位移上限。3%–6% 为满视角理论目标，裁切余量或深度范围不足会限幅。单图无法恢复被遮挡背景，增强后请检查脸部与边缘。" })
+        addView(TextView(context).apply { text = "灵敏度只影响倾斜响应；强度控制位移上限。6%–12% 为满强度、满视角理论请求（旧版的 2 倍），裁切余量或深度范围不足会限幅。单图无法恢复被遮挡背景，增强后请检查脸部与边缘。" })
         refresh()
     }
     fun refresh() {

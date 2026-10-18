@@ -35,7 +35,7 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-V1.2
+          name: FloatDeck-Spatial-V1.2.1-2x
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
@@ -45,6 +45,7 @@ jobs:
             SPATIAL_V1_1.md
             SPATIAL_DIAGNOSTICS.md
             SPATIAL_V1_2.md
+            SPATIAL_STRENGTH_2X.md
 
   android-integration:
     runs-on: ubuntu-latest
@@ -79,11 +80,14 @@ jobs:
             adb shell input keyevent KEYCODE_MENU
             ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest,app.floatdeck.spatial.SpatialGpuDiagnosticTest,app.floatdeck.spatial.SpatialDiagnosticLifecycleTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
             adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png
+            mkdir -p work/android-smoke
+            adb exec-out run-as app.floatdeck.dev cat cache/strength-comparison.csv > work/android-smoke/strength-comparison.csv
+            cat work/android-smoke/strength-comparison.csv
             python3 scripts/check-spatial-android-flow.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FloatDeck-Spatial-V1.2-Android-tests
+          name: FloatDeck-Spatial-V1.2.1-2x-Android-tests
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

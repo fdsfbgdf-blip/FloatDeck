@@ -115,32 +115,72 @@ class SpatialGpuDiagnosticTest {
                 val pixels = ByteBuffer.allocateDirect(720 * 1280 * 4)
                 GL.glReadPixels(0, 0, 720, 1280, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
                 assertEquals(0, GL.glGetError())
+                var fallback = 0
                 var count = 0; var x0 = 720; var y0 = 1280; var x1 = 0; var y1 = 0
                 for (y in 0 until 1280) for (x in 0 until 720) {
                     val i = (y * 720 + x) * 4
-                    if ((pixels.get(i).toInt() and 255) > 180 && (pixels.get(i + 1).toInt() and 255) < 80) {
+                    val r = pixels.get(i).toInt() and 255
+                    val g = pixels.get(i+1).toInt() and 255
+                    val blue = pixels.get(i+2).toInt() and 255
+                    if (r > 250 && g < 5 && blue > 250) fallback++
+                    if (r > 180 && g < 80 && blue < 80) {
                         count++; x0 = minOf(x0, x); y0 = minOf(y0, y); x1 = maxOf(x1, x); y1 = maxOf(y1, y)
                     }
                 }
-                return intArrayOf(count, x1-x0, y1-y0, (x1+x0)/2, (y1+y0)/2)
+                return intArrayOf(count, x1-x0, y1-y0, (x1+x0)/2, (y1+y0)/2, fallback)
             }
             try {
-                renderer.forcedView = SpatialPose.Input()
-                val base = contour()
-                for (axis in 0..1) for (sign in listOf(-1f, 1f)) {
-                    renderer.forcedView = if (axis == 0) SpatialPose.Input(sign, 0f) else SpatialPose.Input(0f, sign)
-                    val moved = contour()
-                    assertTrue("Circle area stretched: ${moved.toList()}", abs(moved[0] - base[0]) < base[0] * 0.02)
-                    if (abs(moved[1] - base[1]) > 3 || abs(moved[2] - base[2]) > 3) {
-                        // Procedural fixture only: preserve exact Android rasterizer inputs on failure.
-                        val inputs = files.map { android.util.Base64.encodeToString(it.readBytes(), android.util.Base64.NO_WRAP) }
-                        fail("Circle stretched axis=$axis sign=$sign base=${base.toList()} moved=${moved.toList()} levels=${renderer.diagnostics.depthLevels} imagePNG=${inputs[0]} depthPNG=${inputs[1]}")
+                val rows = mutableListOf("mode,crop,axis,sign,strength,requested_fraction,safe_fraction,expected_near_px,readback_near_px,fallback_pixels")
+                val input = 0.6f
+                for ((mode, old) in listOf("stable" to 0.03f, "standard" to 0.045f, "enhanced" to 0.06f)) {
+                    for (crop in listOf(0.04f, 0.3f)) {
+                        prefs.edit().putString("parallax_mode", mode).putFloat("crop", crop).commit()
+                        renderer.forcedView = SpatialPose.Input()
+                        val base = contour()
+                        // 0% must be entirely static even with maximum forced input.
+                        prefs.edit().putFloat("strength", 0f).commit()
+                        renderer.forcedView = SpatialPose.Input(1f, 1f)
+                        assertArrayEquals(base, contour())
+                        assertEquals(0f, renderer.diagnostics.motionX, 0f)
+                        assertEquals(0f, renderer.diagnostics.cameraX, 0f)
+                        for (axis in 0..1) for (sign in listOf(-1f, 1f)) {
+                            var oldReadback = 0
+                            for (strength in listOf(0.5f, 1f)) {
+                                prefs.edit().putFloat("strength", strength).commit()
+                                renderer.forcedView = if (axis == 0) SpatialPose.Input(sign*input, 0f) else SpatialPose.Input(0f, sign*input)
+                                val moved = contour()
+                                assertTrue("Circle area stretched: ${moved.toList()}", abs(moved[0] - base[0]) < base[0] * 0.02)
+                                assertTrue("Circle width stretched: $mode/$crop/$strength ${moved.toList()}", abs(moved[1] - base[1]) <= 3)
+                                assertTrue("Circle height stretched: $mode/$crop/$strength ${moved.toList()}", abs(moved[2] - base[2]) <= 3)
+                                val d = renderer.diagnostics
+                                val cover = SpatialMath.cover(720f/1280, 720f/1280, crop)
+                                val requested = old * (if (strength == 0.5f) 1f else 2f)
+                                val allowed = SpatialMath.safeAmplitude(requested, cover, 720, 1280, 720, 1280)
+                                assertEquals(requested * 100, d.targetPercent, 0.0001f)
+                                assertEquals(allowed * 100, d.safePercent, 0.0001f)
+                                val expectedNear = input * allowed * 720 * (1f+SpatialMath.CAMERA_SHARE)
+                                val measuredNear = abs(moved[3+axis] - base[3+axis])
+                                assertEquals("Readback must follow real uniform, not just UI", expectedNear, measuredNear.toFloat(), 2f)
+                                assertEquals(input * allowed * 720, abs(if (axis == 0) d.estimatedNearFarPixelsX else d.estimatedNearFarPixelsY), 0.1f)
+                                if (strength == 0.5f) oldReadback = measuredNear
+                                else if (crop == 0.3f) assertEquals("Unclipped new 100 must double old 100/new 50", 2f*oldReadback, measuredNear.toFloat(), 2f)
+                                if (crop == 0.04f && requested > allowed+0.0001f) assertTrue(d.limitReason.contains("裁切余量不足"))
+                                var fallback = -1
+                                if (strength == 1f && sign > 0) {
+                                    renderer.showFallback = true
+                                    fallback = contour()[5]
+                                    renderer.showFallback = false
+                                }
+                                rows.add("$mode,$crop,$axis,$sign,$strength,$requested,$allowed,$expectedNear,$measuredNear,$fallback")
+                            }
+                        }
                     }
-                    assertTrue("Full movement must be visible", abs(moved[3 + axis] - base[3 + axis]) > 35)
-                    val d = renderer.diagnostics
-                    assertTrue("Far plane must receive camera motion", abs(if (axis == 0) d.cameraX else d.cameraY) > 0f)
-                    assertEquals(43.2f, abs(if (axis == 0) d.estimatedNearFarPixelsX else d.estimatedNearFarPixelsY), 0.5f)
                 }
+                // Diagnostic boost shares the same doubled enhanced request and safety cap.
+                prefs.edit().putFloat("strength", 0.1f).putString("parallax_mode", "stable").commit()
+                renderer.diagnosticBoost = true; renderer.onDrawFrame(null)
+                assertEquals(12f, renderer.diagnostics.targetPercent, 0.0001f)
+                File(context.cacheDir, "strength-comparison.csv").writeText(rows.joinToString("\n") + "\n")
             } finally { renderer.release() }
         } } finally { files.forEach { it.delete() } }
     }

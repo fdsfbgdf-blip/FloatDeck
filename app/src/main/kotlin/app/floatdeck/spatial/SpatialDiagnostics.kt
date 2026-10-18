@@ -31,6 +31,8 @@ data class SpatialRenderStatus(
     val mode: String = "standard",
     val speed: Float = 0.65f,
     val targetPercent: Float = 0f,
+    val safePercent: Float = 0f,
+    val showFallback: Boolean = false,
     val limitReason: String = "",
     val strength: Float = 0f,
     val sensitivity: Float = 0f,

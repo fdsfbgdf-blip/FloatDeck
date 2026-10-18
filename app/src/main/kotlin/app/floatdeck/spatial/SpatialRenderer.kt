@@ -39,6 +39,7 @@ class SpatialRenderer(
     fun recenter() { resetView = true }
     @Volatile var forcedView: SpatialPose.Input? = null
     @Volatile var diagnosticBoost = false
+    @Volatile var showFallback = false
     @Volatile var diagnostics = SpatialRenderStatus()
         private set
     private var failedSignature = ""
@@ -55,7 +56,7 @@ class SpatialRenderer(
             0
         }
         uniforms.clear()
-        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
+        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
         textures.fill(0)
         clockTextures.fill(0)
         minute = -1L
@@ -189,6 +190,7 @@ class SpatialRenderer(
         GL.glUniform2f(uniforms.getValue("uDepthRange"), diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
         GL.glUniform2f(uniforms.getValue("uTexel"), 1f / diagnostics.depthWidth, 1f / diagnostics.depthHeight)
         GL.glUniform1f(uniforms.getValue("uSurfaceTolerance"), if (mode == "stable") 0.002f else 0.004f)
+        GL.glUniform1i(uniforms.getValue("uShowFallback"), if (showFallback) 1 else 0)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
         diagnostics = diagnostics.copy(
@@ -199,8 +201,13 @@ class SpatialRenderer(
             estimatedNearFarPixelsX = mx * depthSpan * width,
             estimatedNearFarPixelsY = my * depthSpan * height,
             cameraX = mx * cover[0] * SpatialMath.CAMERA_SHARE, cameraY = my * cover[1] * SpatialMath.CAMERA_SHARE,
-            fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f,
-            limitReason = if (amplitude + 0.00001f < requested) "裁切余量不足，已限幅" else if (depthSpan < 0.99f) "深度变化不足，避免放大深度噪声" else "当前裁切余量可用；断层局部回退仍可能降低位移",
+            fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f, safePercent = amplitude * 100f, showFallback = showFallback,
+            limitReason = buildString {
+                if (amplitude + 0.00001f < requested) append("裁切余量不足（相机偏移+近景+源像素边距），已限幅；")
+                else append("裁切未限幅；")
+                if (depthSpan < 0.99f) append("深度变化不足，近远差缩小；")
+                append("以上为 GPU 位移/几何估计，不是逐像素实测；交点回退可能局部削弱，请在诊断页查看紫色回退区域")
+            },
             strength = strength, sensitivity = sensitivity, angle = angle,
             crop = state["crop"] as? Float ?: 0.04f, forced = forced != null, boosted = diagnosticBoost,
         )

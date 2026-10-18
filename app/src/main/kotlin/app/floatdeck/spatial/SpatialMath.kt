@@ -13,9 +13,9 @@ object SpatialMath {
         return kotlin.math.sign(v) * kotlin.math.tanh(curved * 1.2f) / kotlin.math.tanh(1.2f)
     }
     fun amplitude(strength: Float, mode: String): Float = strength.coerceIn(0f, 1f) * when (mode) {
-        "stable" -> 0.03f
-        "enhanced" -> 0.06f
-        else -> 0.045f
+        "stable" -> 0.06f
+        "enhanced" -> 0.12f
+        else -> 0.09f
     }
     fun motion(tilt: Float, sensitivity: Float, angle: Float, strength: Float): Float =
         response(tilt, sensitivity, angle) * amplitude(strength, "standard")

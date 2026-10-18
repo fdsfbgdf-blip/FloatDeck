@@ -237,6 +237,7 @@ object Shaders {
         uniform vec2 uDepthRange;
         uniform vec2 uTexel;
         uniform float uSurfaceTolerance;
+        uniform int uShowFallback;
         uniform sampler2D uClock;
         uniform sampler2D uMask;
         uniform int uClockEnabled;
@@ -316,6 +317,7 @@ object Shaders {
                 float visible = 1.0 - mask;
                 color = color * (1.0 - clock.a * visible) + clock.rgb * visible;
             }
+            if (uShowFallback == 1 && !hit) color = vec3(1.0, 0.0, 1.0);
             fragColor = vec4(color, 1.0);
         }
         """.trimIndent()
