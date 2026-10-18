@@ -101,6 +101,10 @@ class SpatialRenderer(
                                 diagnostics = diagnostics.copy(imageWidth = bitmap.width, imageHeight = bitmap.height)
                             } else {
                                 require(bitmap.width == diagnostics.imageWidth && bitmap.height == diagnostics.imageHeight) { "原图与深度纹理尺寸不一致" }
+                                val pixels = IntArray(bitmap.width * bitmap.height)
+                                bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                                val repaired = SpatialDepthEdges.repair(pixels, bitmap.width, bitmap.height)
+                                bitmap.setPixels(repaired, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                                 val row = IntArray(bitmap.width)
                                 val levels = BooleanArray(256)
                                 var min = 255
