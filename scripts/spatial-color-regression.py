@@ -103,7 +103,12 @@ for name in ['identity','identity-mismatched','quantized-slope','discontinuity']
     report['fixtures'].append(item)
 # A normal-color contour test catches HIT-region bilinear color leaks: a correct
 # root can still sample foreground color at the original, undisplaced silhouette.
-yc,xc=np.mgrid[:1280,:720];near=(xc-360)**2+(yc-640)**2<120**2
+# Match Android's 720x1280 contour fixture and crop exactly. A 360-wide
+# downsample can miss isolated bilinear foreground residues at the old contour.
+saved_size=(w,h);w,h=720,1280
+circle_cover=1/1.14
+gl('glUniform2f',None,[I,F,F],loc('uCover'),circle_cover,circle_cover)
+yc,xc=np.mgrid[:1280,:720];near=(xc+.5-360)**2+(yc+.5-640)**2<120**2
 circle_photo=rgba(np.where(near[...,None],np.array([255,0,0]),np.array([0,255,0])).astype(np.uint8))
 circle_depth=np.where(near,255,0).astype(np.uint8)
 upload(0,circle_photo);upload(1,rgba(np.repeat(circle_depth[...,None],3,axis=2)))
@@ -112,14 +117,16 @@ def contour(pixels):
     yy,xx=np.where(red)
     return np.array([red.sum(),xx.max()-xx.min(),yy.max()-yy.min()])
 base_circle=contour(draw(0,0));circle_results=[]
-for mx,my in [(.0162,0),(-.0162,0),(.0648,0),(0,.0648),(.05184,.033048)]:
+for mx,my in [(.018*circle_cover,0),(-.018*circle_cover,0),(.072*circle_cover,0),(0,.072*circle_cover),(.0576*circle_cover,.03672*circle_cover)]:
     normal=draw(mx,my);bounds=contour(normal)
     circle_results.append({'motion':[mx,my],'area_width_height':bounds.tolist()})
     if args.algorithm=='v3':
         assert abs(int(bounds[0])-int(base_circle[0]))<base_circle[0]*.02,(base_circle,bounds)
-        assert np.all(np.abs(bounds[1:]-base_circle[1:])<=2),(base_circle,bounds)
+        assert np.all(np.abs(bounds[1:]-base_circle[1:])<=3),(base_circle,bounds)
 Image.fromarray(normal).save(output/f'{args.algorithm}-circle-normal.png')
-report['normal_circle']={'base_area_width_height':base_circle.tolist(),'cases':circle_results}
+report['normal_circle']={'viewport':[w,h],'cover':circle_cover,'base_area_width_height':base_circle.tolist(),'cases':circle_results}
+w,h=saved_size
+gl('glUniform2f',None,[I,F,F],loc('uCover'),.9,.9)
 # Restore the same large-texture discontinuity fixture for timing all algorithms.
 near=(xd>400)&(xd<740)&(yd>650)&(yd<1450)
 upload(0,rgba(np.where(near[...,None],np.array([245,15,10]),np.array([15,190,55])).astype(np.uint8)))
