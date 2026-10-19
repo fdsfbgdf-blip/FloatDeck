@@ -1,0 +1,21 @@
+<div id="{{ID}}">
+<p>编辑 {{NAME}}：白=前景/保留；黑=背景/删除；灰=不确定（trimap）或半透明（alpha）。Trimap 保存时量化为 0/128/255。遮罩必须人工审核。画笔单位为原图像素。</p>
+<label>画笔 <input class="brush" type="range" min="1" max="100" value="12"></label>
+<select class="value"><option value="255">白 255</option><option value="0">黑 0</option><option value="128">灰 128</option><option value="64">Alpha 64</option><option value="192">Alpha 192</option></select>
+<label>缩放 <select class="zoom"><option>700</option><option>1200</option><option>2000</option></select></label>
+<label>遮罩叠加 <input class="opacity" type="range" min="0" max="1" step="0.05" value="0.4"></label>
+<button class="save">保存遮罩（不自动批准）</button><span class="status"></span>
+<div style="overflow:auto;max-height:720px"><div class="stage" style="position:relative;width:700px">
+<img class="source" src="{{SOURCE}}" style="display:block;width:100%"><canvas style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0.4;touch-action:none"></canvas>
+</div></div></div>
+<script>
+(()=>{const root=document.getElementById('{{ID}}'),c=root.querySelector('canvas'),ctx=c.getContext('2d'),im=new Image();
+im.onload=()=>{c.width=im.width;c.height=im.height;ctx.drawImage(im,0,0)};im.src='{{MASK}}';let down=false;
+function paint(e){if(!down)return;const r=c.getBoundingClientRect(),x=(e.clientX-r.left)*c.width/r.width,y=(e.clientY-r.top)*c.height/r.height;
+const v=Number(root.querySelector('.value').value);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.beginPath();ctx.arc(x,y,Number(root.querySelector('.brush').value),0,Math.PI*2);ctx.fill()}
+c.onpointerdown=e=>{down=true;c.setPointerCapture(e.pointerId);paint(e)};c.onpointermove=paint;c.onpointerup=()=>down=false;c.onpointercancel=()=>down=false;
+root.querySelector('.zoom').onchange=e=>root.querySelector('.stage').style.width=e.target.value+'px';
+root.querySelector('.opacity').oninput=e=>c.style.opacity=e.target.value;
+root.querySelector('.save').onclick=async()=>{const s=root.querySelector('.status');s.textContent='保存中';try{await google.colab.kernel.invokeFunction('{{ID}}',[c.toDataURL('image/png')],{});s.textContent='已保存，请重新审核'}catch(e){s.textContent='保存失败: '+e}};
+})();
+</script>

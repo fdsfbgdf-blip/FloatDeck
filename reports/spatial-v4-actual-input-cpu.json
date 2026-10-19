@@ -1,0 +1,23 @@
+{
+  "scope": "ACTUAL INPUT CPU INSPECTION ONLY; not layer or model quality acceptance",
+  "zip_sha256": "369b340f1e8cacc6de92f17bcfb5571233719db8e29769e15e936046f3dba19d",
+  "size": [
+    1648,
+    2944
+  ],
+  "pixels": 4851712,
+  "source_mode": "RGB",
+  "depth_mode": "L",
+  "source_decode_pixels_unchanged": true,
+  "depth_pixels_unchanged": true,
+  "depth_min": 0,
+  "depth_max": 255,
+  "torch_installed": false,
+  "nvidia_smi_found": false,
+  "gpu_models_executed": false,
+  "actual_background_generated": false,
+  "actual_alpha_generated": false,
+  "actual_scene_quality_accepted": false,
+  "source_zip_modified": false,
+  "note": "No real-photo layer ZIP claimed; run Colab and review. Original uploaded art not committed."
+}
