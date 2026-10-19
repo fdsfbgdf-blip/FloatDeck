@@ -62,7 +62,7 @@ class SpatialActivity : ComponentActivity() {
                 lastMetrics = now
                 val d = renderer.diagnostics
                 val raw = sensor.spatialInput
-                metrics.text = "原始转向/俯仰/侧倾：%.1f° / %.1f° / %.1f°\n标准化输入：%.2f / %.2f；GPU 相机：%.4f / %.4f UV\n理论请求 / 裁切后上限：%.2f%% / %.2f%%\n估计近远差：%.1f / %.1f px；%.1f FPS\n%s".format(java.util.Locale.US, raw.yawDegrees, raw.pitchDegrees, raw.bankDegrees, d.viewX, d.viewY, d.cameraX, d.cameraY, d.targetPercent, d.safePercent, d.estimatedNearFarPixelsX, d.estimatedNearFarPixelsY, d.fps, d.limitReason)
+                metrics.text = "原始转向/俯仰/侧倾：%.1f° / %.1f° / %.1f°\n标准化输入：%.2f / %.2f；GPU 相机：%.4f / %.4f UV\n理论请求 / 当前方向应用增益：%.2f%% / %.2f%%\n估计近远差：%.1f / %.1f px；%.1f FPS\n%s".format(java.util.Locale.US, raw.yawDegrees, raw.pitchDegrees, raw.bankDegrees, d.viewX, d.viewY, d.cameraX, d.cameraY, d.targetPercent, d.safePercent, d.estimatedNearFarPixelsX, d.estimatedNearFarPixelsY, d.fps, d.limitReason)
             }
             handler.postDelayed(this, 16L)
         }

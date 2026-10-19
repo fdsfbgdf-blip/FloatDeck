@@ -109,10 +109,11 @@ class SpatialGpuDiagnosticTest {
         try { withGl {
             val renderer = SpatialRenderer(context, prefs)
             renderer.onSurfaceCreated(null, null); renderer.onSurfaceChanged(null, 720, 1280)
+            val contourPixels=ByteBuffer.allocateDirect(720 * 1280 * 4)
             fun contour(): IntArray {
                 renderer.onDrawFrame(null)
                 assertTrue(renderer.diagnostics.message, renderer.diagnostics.ready)
-                val pixels = ByteBuffer.allocateDirect(720 * 1280 * 4)
+                val pixels = contourPixels.apply { clear() }
                 GL.glReadPixels(0, 0, 720, 1280, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
                 assertEquals(0, GL.glGetError())
                 var fallback = 0
@@ -207,11 +208,12 @@ class SpatialGpuDiagnosticTest {
         withGl {
             val renderer=SpatialRenderer(context,prefs)
             renderer.onSurfaceCreated(null,null); renderer.onSurfaceChanged(null,720,1280)
+            val scenePixels=ByteBuffer.allocateDirect(720*1280*4)
             fun read(axis:Int):List<Float> {
                 renderer.onDrawFrame(null)
                 assertTrue(renderer.diagnostics.message,renderer.diagnostics.ready)
                 val cover=SpatialMath.cover(720f/1280,720f/1280,0.04f)
-                val whole=ByteBuffer.allocateDirect(720*1280*4)
+                val whole=scenePixels.apply { clear() }
                 GL.glReadPixels(0,0,720,1280,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE,whole)
                 for(i in 0 until 720*1280) {
                     assertEquals(255,whole.get(i*4+3).toInt() and 255)

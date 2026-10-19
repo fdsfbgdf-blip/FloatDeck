@@ -62,7 +62,8 @@ internal class SpatialGpuProbe {
                 for(i in 0..2) {
                     val dx=(component(after,i*4)-component(before,i*4))/cover[0]*width
                     val dy=(component(after,i*4+2)-component(before,i*4+2))/cover[1]*height
-                    append("\n${points[i].label}：X %.2f / Y %.2f px；交点%s".format(java.util.Locale.US,dx,dy,
+                    append("\n${points[i].label}采样点：X %.2f / Y %.2f px；有效深度 %.2f→%.2f；交点%s".format(java.util.Locale.US,dx,dy,
+                        (before[(i+3)*4].toInt() and 255)/255f,(after[(i+3)*4].toInt() and 255)/255f,
                         if((after[(i+3)*4+1].toInt() and 255)>128) "回退（此点不能作为可靠物体位移）" else "有效"))
                 }
             }
@@ -79,15 +80,20 @@ internal class SpatialGpuProbe {
         fun points(pixels:IntArray,w:Int,h:Int,min:Int,max:Int): List<Point> {
             val best=FloatArray(3) { Float.MAX_VALUE }; val found=arrayOfNulls<Point>(3)
             // A stable patch is preferable to an extreme-depth edge or antialiasing pixel.
-            for(y in 3 until h-3 step 3) for(x in 3 until w-3 step 3) {
+            val labels=arrayOf("远景","中景","近景")
+            val radius = maxOf(3,(minOf(w,h)*0.075f).toInt())
+            val offsets=intArrayOf(-2,2,-2*w,2*w,-radius,radius,-radius*w,radius*w)
+            for(y in radius until h-radius step 3) for(x in radius until w-radius step 3) {
                 val z=(pixels[y*w+x] ushr 16) and 255
                 val d=SpatialMath.normalizedDepth(z/255f,min/255f,max/255f)
                 val index=when { d<0.15f -> 0; d in 0.35f..0.65f -> 1; d>0.85f -> 2; else -> -1 }
                 if(index<0) continue
-                if(listOf(-2,2,-2*w,2*w).any { kotlin.math.abs(((pixels[y*w+x+it] ushr 16) and 255)-z)>3 }) continue
+                var stable=true
+                for(offset in offsets) if(kotlin.math.abs(((pixels[y*w+x+offset] ushr 16) and 255)-z)>3) { stable=false; break }
+                if(!stable) continue
                 val u=(x+0.5f)/w; val v=(y+0.5f)/h
                 val score=(u-0.5f)*(u-0.5f)+(v-0.5f)*(v-0.5f)
-                if(score<best[index]) { best[index]=score; found[index]=Point(arrayOf("远景","中景","近景")[index],u,v) }
+                if(score<best[index]) { best[index]=score; found[index]=Point(labels[index],u,v) }
             }
             return found.filterNotNull()
         }
