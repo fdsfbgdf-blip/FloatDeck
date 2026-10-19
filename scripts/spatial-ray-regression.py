@@ -3,7 +3,14 @@ Run from repository root with Mesa EGL ES3. No Android/device claims.
 """
 exec(compile(open('scripts/spatial-render-check.py').read(), 'spatial-render-check.py', 'exec'))
 import math
+# Photo deliberately has twice the depth resolution; channels encode source UV.
+photo=bytearray(v for y in range(512) for x in range(512) for v in (x//2,y//2,0,255))
+photo_buf=(C.c_ubyte*len(photo)).from_buffer(photo)
+gl('glActiveTexture',None,[U],0x84C0)
+gl('glBindTexture',None,[U,U],0x0DE1,tex[0])
+gl('glTexImage2D',None,[U,I,I,I,I,I,U,U,P],0x0DE1,0,0x1908,512,512,0,0x1908,0x1401,C.cast(photo_buf,P))
 checks=0
+color_checks=0
 for fixture in ['thin', 'steps', 'ramp']:
     depths=[]
     for y in range(256):
@@ -18,7 +25,10 @@ for fixture in ['thin', 'steps', 'ramp']:
     gl('glUniform1i',None,[I,I],loc('uClockEnabled'),0)
     gl('glUniform1i',None,[I,I],loc('uMeasureFallback'),1)
     for mx,my in [(.12,.0765),(-.12,-.0765),(.12,-.0765),(-.12,.0765),(0,0)]:
+        gl('glUniform1i',None,[I,I],loc('uMeasureFallback'),1)
         pixels=render(mx,my)
+        gl('glUniform1i',None,[I,I],loc('uMeasureFallback'),0)
+        colors=render(mx,my)
         for y in range(8,248,7):
             for x in range(8,248,7):
                 bx=(x+.5)/256; by=1-(y+.5)/256
@@ -30,4 +40,10 @@ for fixture in ['thin', 'steps', 'ramp']:
                 actual=pixels[(y*256+x)*4]==0
                 assert actual==bool(hits), (fixture,mx,my,x,y,actual,hits)
                 checks+=1
-print(json.dumps({'exact_ray_oracle_samples':checks,'thin_foreground_steps_ramp':'passed','motion_unchanged':True}))
+                if hits:
+                    z=max(hits)  # nearest visible surface, not any valid root
+                    expected=[(bx-mx*z)*256-.5,(by-my*z)*256-.5]
+                    actual_color=colors[(y*256+x)*4:(y*256+x)*4+2]
+                    assert all(abs(actual_color[i]-expected[i])<=2 for i in range(2)), (fixture,expected,list(actual_color))
+                    color_checks+=1
+print(json.dumps({'exact_ray_oracle_samples':checks,'thin_foreground_steps_ramp':'passed','motion_unchanged':True,'first_hit_and_mismatched_resolution_color_checks':color_checks}))
