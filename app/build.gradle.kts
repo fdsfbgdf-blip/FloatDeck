@@ -91,8 +91,8 @@ android {
         applicationId = "app.floatdeck"
         minSdk = 26
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.3-render-diagnostics"
+        versionCode = 16
+        versionName = "1.3-render-fix-v3-candidate"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -15,7 +15,7 @@ if not args.algorithm:
         subprocess.run(cmd,check=True)
     rows=[json.loads((output/f'{a}.json').read_text()) for a in ['v1','v2','v3']]
     (output/'metrics.json').write_text(json.dumps(rows,indent=2))
-    for fixture in ['identity','quantized-slope','discontinuity']+(['actual-package'] if args.package else []):
+    for fixture in ['identity','identity-mismatched','quantized-slope','discontinuity']+(['actual-package'] if args.package else []):
         sheet=Image.new('RGB',(360*3,680),(30,30,30));draw=ImageDraw.Draw(sheet)
         for i,a in enumerate(['v1','v2','v3']):
             sheet.paste(Image.open(output/f'{a}-{fixture}-normal.png'),(i*360,40));draw.text((i*360+8,10),a.upper(),fill='white')
@@ -53,12 +53,14 @@ def draw(mx,my,mask=False):
 u,v=np.meshgrid((np.arange(w)+.5)/w,(np.arange(h)+.5)/h)
 gl('glUniform2f',None,[I,F,F],loc('uCover'),.90,.90)
 # A detailed color texture, independently sized from depth, not a depth visualization.
-y,x=np.mgrid[:2048,:1536]
+y,x=np.mgrid[:2048,:1146]
 photo=rgba(np.stack([(x*3+y*5)%256,(x//7*31+y//11*17)%256,(x//3+y//5)*23%256],axis=2))
+ym,xm=np.mgrid[:2048,:1536]
+mismatched_photo=rgba(np.stack([(xm*3+ym*5)%256,(xm//7*31+ym//11*17)%256,(xm//3+ym//5)*23%256],axis=2))
 yd,xd=np.mgrid[:2048,:1146]
-for name in ['identity','quantized-slope','discontinuity']:
-    if name=='identity':
-        depth=np.where((xd//7+yd//9)%2,230,25).astype(np.uint8);mx=my=0.0;image=photo
+for name in ['identity','identity-mismatched','quantized-slope','discontinuity']:
+    if name.startswith('identity'):
+        depth=np.where((xd//7+yd//9)%2,230,25).astype(np.uint8);mx=my=0.0;image=mismatched_photo if name.endswith("mismatched") else photo
     elif name=='quantized-slope':
         depth=(yd*255//2047).astype(np.uint8);mx,my=.096,.0612;image=photo
     else:
@@ -70,10 +72,10 @@ for name in ['identity','quantized-slope','discontinuity']:
     Image.fromarray(normal).save(output/f'{args.algorithm}-{name}-normal.png')
     Image.fromarray((mask*255).astype(np.uint8)).save(output/f'{args.algorithm}-{name}-mask.png')
     Image.fromarray(image).save(output/f'{name}-source.png')
-    item={'fixture':name,'failed_pixels':int(mask.sum()),'total':w*h}
-    if name in ['identity','quantized-slope']:
+    item={'fixture':name,'photo_size':[image.shape[1],image.shape[0]],'depth_size':[1146,2048],'failed_pixels':int(mask.sum()),'total':w*h}
+    if name.startswith('identity') or name=='quantized-slope':
         bx=(u-.5)*.9+.5-mx*.3;by=(v-.5)*.9+.5-my*.3
-        if name=='identity':qx,qy=bx,by
+        if name.startswith('identity'):qx,qy=bx,by
         else:
             # Independent monotone scalar root bisection of actual uploaded depth.
             lo=np.zeros_like(u);hi=np.ones_like(u)

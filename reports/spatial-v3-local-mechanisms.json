@@ -1,0 +1,137 @@
+[
+  {
+    "algorithm": "v1",
+    "backend": "llvmpipe (LLVM 19.1.7, 256 bits)",
+    "fixtures": [
+      {
+        "fixture": "identity",
+        "failed_pixels": 0,
+        "total": 230400,
+        "normal_bad_pixels": 47810,
+        "hit_bad_pixels": 47810,
+        "fallback_bad_pixels": 0,
+        "unknown_source_pixels": 0,
+        "max_error_valid_source": 255.0
+      },
+      {
+        "fixture": "quantized-slope",
+        "failed_pixels": 12640,
+        "total": 230400,
+        "normal_bad_pixels": 28755,
+        "hit_bad_pixels": 22493,
+        "fallback_bad_pixels": 6268,
+        "unknown_source_pixels": 6395,
+        "max_error_valid_source": 244.65246489026015
+      },
+      {
+        "fixture": "discontinuity",
+        "failed_pixels": 14004,
+        "total": 230400,
+        "foreground_color_in_failed_pixels": 0
+      }
+    ],
+    "performance": {
+      "viewport": [
+        720,
+        1280
+      ],
+      "warmup": 3,
+      "samples": 7,
+      "sync_median_ms": 125.980827,
+      "sync_p95_ms": 156.9491424,
+      "gpu_timer_median_ms": 1.506133,
+      "gpu_timer_valid": true,
+      "note": "software Mesa, not mobile GPU; explicit fences, not sustained FPS"
+    }
+  },
+  {
+    "algorithm": "v2",
+    "backend": "llvmpipe (LLVM 19.1.7, 256 bits)",
+    "fixtures": [
+      {
+        "fixture": "identity",
+        "failed_pixels": 5294,
+        "total": 230400,
+        "normal_bad_pixels": 28720,
+        "hit_bad_pixels": 28053,
+        "fallback_bad_pixels": 667,
+        "unknown_source_pixels": 0,
+        "max_error_valid_source": 255.0
+      },
+      {
+        "fixture": "quantized-slope",
+        "failed_pixels": 27187,
+        "total": 230400,
+        "normal_bad_pixels": 26581,
+        "hit_bad_pixels": 5815,
+        "fallback_bad_pixels": 20766,
+        "unknown_source_pixels": 6395,
+        "max_error_valid_source": 253.0
+      },
+      {
+        "fixture": "discontinuity",
+        "failed_pixels": 14243,
+        "total": 230400,
+        "foreground_color_in_failed_pixels": 0
+      }
+    ],
+    "performance": {
+      "viewport": [
+        720,
+        1280
+      ],
+      "warmup": 3,
+      "samples": 7,
+      "sync_median_ms": 1407.358451,
+      "sync_p95_ms": 1526.4225785,
+      "gpu_timer_median_ms": 19.196656,
+      "gpu_timer_valid": true,
+      "note": "software Mesa, not mobile GPU; explicit fences, not sustained FPS"
+    }
+  },
+  {
+    "algorithm": "v3",
+    "backend": "llvmpipe (LLVM 19.1.7, 256 bits)",
+    "fixtures": [
+      {
+        "fixture": "identity",
+        "failed_pixels": 0,
+        "total": 230400,
+        "normal_bad_pixels": 0,
+        "hit_bad_pixels": 0,
+        "fallback_bad_pixels": 0,
+        "unknown_source_pixels": 0,
+        "max_error_valid_source": 1.340800000040133
+      },
+      {
+        "fixture": "quantized-slope",
+        "failed_pixels": 6395,
+        "total": 230400,
+        "normal_bad_pixels": 0,
+        "hit_bad_pixels": 0,
+        "fallback_bad_pixels": 0,
+        "unknown_source_pixels": 6395,
+        "max_error_valid_source": 1.4045692905672666
+      },
+      {
+        "fixture": "discontinuity",
+        "failed_pixels": 14243,
+        "total": 230400,
+        "foreground_color_in_failed_pixels": 0
+      }
+    ],
+    "performance": {
+      "viewport": [
+        720,
+        1280
+      ],
+      "warmup": 3,
+      "samples": 7,
+      "sync_median_ms": 889.458826,
+      "sync_p95_ms": 956.7990732999999,
+      "gpu_timer_median_ms": 12.149434,
+      "gpu_timer_valid": true,
+      "note": "software Mesa, not mobile GPU; explicit fences, not sustained FPS"
+    }
+  }
+]

@@ -1,0 +1,45 @@
+{
+  "algorithm": "v2",
+  "backend": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "fixtures": [
+    {
+      "fixture": "identity",
+      "failed_pixels": 0,
+      "total": 230400,
+      "normal_bad_pixels": 21750,
+      "hit_bad_pixels": 21750,
+      "fallback_bad_pixels": 0,
+      "unknown_source_pixels": 0,
+      "max_error_valid_source": 153.19200000002664
+    },
+    {
+      "fixture": "quantized-slope",
+      "failed_pixels": 20015,
+      "total": 230400,
+      "normal_bad_pixels": 20232,
+      "hit_bad_pixels": 6633,
+      "fallback_bad_pixels": 13599,
+      "unknown_source_pixels": 6395,
+      "max_error_valid_source": 251.0
+    },
+    {
+      "fixture": "discontinuity",
+      "failed_pixels": 14243,
+      "total": 230400,
+      "foreground_color_in_failed_pixels": 0
+    }
+  ],
+  "performance": {
+    "viewport": [
+      720,
+      1280
+    ],
+    "warmup": 3,
+    "samples": 7,
+    "sync_median_ms": 1000.435934,
+    "sync_p95_ms": 1045.2629705,
+    "gpu_timer_median_ms": 14.99625,
+    "gpu_timer_valid": true,
+    "note": "software Mesa, not mobile GPU; explicit fences, not sustained FPS"
+  }
+}
