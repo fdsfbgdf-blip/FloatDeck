@@ -68,4 +68,13 @@
 
 ## 执行结果与提交
 
-CPU 与 Actions 最终结果在验证完成后补充；Notebook 代码单元初始 execution_count 均 null、outputs 均空，未插入伪造执行截图或日志。
+- 本地 Python 3.12：19 项 CPU 回归全部通过（4.053 秒）；compileall 与 git diff --check 通过。
+- Notebook：10 个 Python 单元 AST 检查及 nbformat 5.10.4 严格验证通过；execution_count 均 null、outputs 均空，未插入伪造执行截图或日志。
+- 玩具 ZIP：--allow-draft 结构验证通过；人工审核与独立视觉验证均为 false，不能当作真实仙女素材包。
+- 实际输入：原图/深度均为 1648×2944，原生坐标与解码像素一致性通过，原始 ZIP 未改；详情见 reports/spatial-v4-actual-input-cpu.json。
+- Android：相对基础提交 7dee272 的 app/ 无变更；V1 读取仅用于生成端，不替换 APP 导入或渲染。
+- 代码提交：[184fd2894a0d70cc29b1e22e99869e732eb94199](https://github.com/fdsfbgdf-blip/FloatDeck/commit/184fd2894a0d70cc29b1e22e99869e732eb94199)。
+- 最新 [GitHub Actions CPU 检查](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39258606583)：completed / success，对应上述代码提交。前一实现提交 79c9311 的检查也通过。
+- [Colab 打开 Notebook](https://colab.research.google.com/github/fdsfbgdf-blip/FloatDeck/blob/spatial-layered-v4-generator/notebooks/FloatDeck_V4_Layered_Generator.ipynb)。Actions 附件为 CPU 检查过的生成器，不是实际模型生成的素材。
+
+本环境没有 torch/CUDA/T4；SAM、VitMatte、SDXL 未运行，实际 Alpha、背景补全、GPU 显存与耗时未验证。Colab 画笔编辑器仅完成源码与接口检查，浏览器交互也须在 Colab 检查。尚未产出经验证可用的真实仙女 spatial-v2 包；仓库里的示例仅为格式测试。阶段性交付是可执行生成端与审核/校验流程，真实素材可用性仍是未完成的验收项。
