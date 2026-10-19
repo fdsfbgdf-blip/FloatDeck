@@ -100,6 +100,14 @@ def diagnostic_engine():
     for attempt in range(10):
         nodes = list(dump())
         text = next((n.attrib.get('text', '') for n in nodes if n.attrib.get('resource-id', '').endswith(':id/spatial_diagnostic_info')), '')
+        if not text:
+            # V3 adds visible A/B and export controls. Scroll the actual controls
+            # through ordinary input rather than reading an off-screen stale node.
+            scroll = next((n for n in nodes if n.attrib.get('class') == 'android.widget.ScrollView'
+                           and n.attrib.get('scrollable') == 'true'), None)
+            if scroll is not None:
+                x0,y0,x1,y1 = map(int,re.findall(r'\d+',scroll.attrib['bounds']))
+                adb('shell','input','swipe',str((x0+x1)//2),str(y1-24),str((x0+x1)//2),str(y0+24),'350')
         lines = re.findall(r'已安装壁纸引擎\[[^\]]+\]：[^\n]+', text)
         for line in lines:
             if '空间模式' in line and '晨光森林' in line and '强度0.370' in line and '深度25-240' in line:
