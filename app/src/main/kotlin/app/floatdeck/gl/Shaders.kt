@@ -229,6 +229,287 @@ object Shaders {
     val spatialFragment = """
         #version 300 es
         precision highp float;
+        precision highp int;
+        uniform highp sampler2D uImage;
+        uniform highp sampler2D uDepth;
+        uniform vec2 uCover;
+        uniform vec2 uMotion;
+        uniform vec2 uCamera;
+        uniform vec2 uDepthRange;
+        uniform vec2 uTexel;
+        uniform float uSurfaceTolerance;
+        uniform int uShowFallback;
+        uniform int uMeasureFallback;
+        uniform int uProbe;
+        uniform vec2 uProbeUV[3];
+        uniform sampler2D uClock;
+        uniform sampler2D uMask;
+        uniform int uClockEnabled;
+        in vec2 vUV;
+        out vec4 fragColor;
+        bool validUV(vec2 uv) {
+            return all(greaterThanEqual(uv, uTexel)) && all(lessThanEqual(uv, 1.0-uTexel));
+        }
+        float depthAt(vec2 uv) {
+            float span = uDepthRange.y - uDepthRange.x;
+            if (span < 1.0 / 255.0) return 0.5;
+            ivec2 size = textureSize(uDepth, 0);
+            ivec2 exact = clamp(ivec2(clamp(uv, uTexel, 1.0-uTexel) * vec2(size)), ivec2(0), size-1);
+            // Use identical integer addressing for visibility and source color.
+            float value = texelFetch(uDepth, exact, 0).r;
+            return clamp((value-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
+        }
+        vec3 imageAt(vec2 uv) {
+            // Preserve photo reconstruction in photo coordinates, including at
+            // zero motion. No depth-dependent color weights or detail filtering.
+            return texture(uImage, uv).rgb;
+        }
+        float normalizedValue(float value) {
+            float span = uDepthRange.y-uDepthRange.x;
+            return span < 1.0/255.0 ? 0.5 : clamp((value-uDepthRange.x)/max(0.15,span),0.0,1.0);
+        }
+        bool rootInCell(float z, float lo, float hi, vec2 base, vec2 size, ivec2 cell) {
+            vec2 q = base-uMotion*z;
+            vec2 f = q*size-0.5-vec2(cell);
+            // Only float roundoff at shared cell boundaries, not a depth tolerance.
+            return z >= lo-0.0000001 && z <= hi+0.0000001 && validUV(q) &&
+                all(greaterThanEqual(f,vec2(-0.0002))) && all(lessThanEqual(f,vec2(1.0002)));
+        }
+        float surfaceRoot(vec4 d, vec2 base, vec2 size, ivec2 cell, float lo, float hi) {
+            vec2 a = base*size-0.5-vec2(cell);
+            vec2 b = uMotion*size;
+            float dx=d.y-d.x, dy=d.z-d.x, crossTerm=d.w-d.y-d.z+d.x;
+            float A=crossTerm*b.x*b.y;
+            float B=-dx*b.x-dy*b.y-crossTerm*(a.x*b.y+a.y*b.x)-1.0;
+            float C=d.x+dx*a.x+dy*a.y+crossTerm*a.x*a.y;
+            vec2 roots=vec2(-2.0);
+            if (abs(A) < 0.0000001) {
+                if (abs(B) > 0.0000001) roots.x=-C/B;
+            } else {
+                float disc=B*B-4.0*A*C;
+                if (disc >= 0.0) {
+                    float q=-0.5*(B+(B>=0.0?1.0:-1.0)*sqrt(disc));
+                    if (abs(q)>0.0000001) roots=vec2(q/A,C/q);
+                    else roots=vec2(-B/(2.0*A));
+                }
+            }
+            float z=-2.0;
+            for(int k=0;k<2;++k) if(rootInCell(roots[k],lo,hi,base,size,cell)) {
+                vec2 f=(base-uMotion*roots[k])*size-0.5-vec2(cell);
+                float observed=mix(mix(d.x,d.y,f.x),mix(d.z,d.w,f.x),f.y);
+                if(abs(observed-roots[k])<=uSurfaceTolerance) z=max(z,roots[k]);
+            }
+            return z;
+        }
+        void main() {
+            // Camera offset moves even the far plane. Relative depth remains continuous.
+            vec2 screenUV = uProbe == 1 ? uProbeUV[int(gl_FragCoord.y) % 3] : vUV;
+            vec2 base = (screenUV - 0.5) * uCover + 0.5 - uCamera;
+            vec2 uv = base;
+            bool hit = false;
+            // Continuous bilinear patches only within a locally smooth surface.
+            // Sharp jumps retain disconnected source samples; no depth wall bridge.
+            vec2 size=vec2(textureSize(uDepth,0));
+            float enter=0.0, leave=1.0;
+            for(int axis=0;axis<2;++axis) {
+                if(abs(uMotion[axis])<0.0000001) {
+                    if(base[axis]<uTexel[axis] || base[axis]>1.0-uTexel[axis]) leave=-1.0;
+                } else {
+                    float t0=(base[axis]-(1.0-uTexel[axis]))/uMotion[axis];
+                    float t1=(base[axis]-uTexel[axis])/uMotion[axis];
+                    enter=max(enter,min(t0,t1)); leave=min(leave,max(t0,t1));
+                }
+            }
+            ivec2 stepCell=ivec2(sign(uMotion));
+            vec2 start=(base-uMotion*leave)*size-0.5;
+            ivec2 cell=ivec2(floor(start+sign(uMotion)*0.0002));
+            float hi=leave;
+            for(int i=0;i<1024;++i) {
+                if(hi<enter || leave<enter) break;
+                ivec2 a=clamp(cell,ivec2(0),ivec2(size)-2);
+                vec2 crossing=vec2(-1e20);
+                for(int axis=0;axis<2;++axis) if(stepCell[axis]!=0) {
+                    float boundary=(float(cell[axis])+(stepCell[axis]>0?1.5:0.5))/size[axis];
+                    crossing[axis]=(base[axis]-boundary)/uMotion[axis];
+                }
+                float lo=max(enter,max(crossing.x,crossing.y));
+                vec4 d=vec4(normalizedValue(texelFetch(uDepth,a,0).r),
+                    normalizedValue(texelFetch(uDepth,a+ivec2(1,0),0).r),
+                    normalizedValue(texelFetch(uDepth,a+ivec2(0,1),0).r),
+                    normalizedValue(texelFetch(uDepth,a+ivec2(1,1),0).r));
+                float range=max(max(d.x,d.y),max(d.z,d.w))-min(min(d.x,d.y),min(d.z,d.w));
+                float z=-2.0;
+                if(range<=0.12) z=surfaceRoot(d,base,size,a,lo,hi);
+                else for(int k=0;k<4;++k) {
+                    // A real discontinuity has no connecting surface. Use only
+                    // its owning source sample, preserving one-texel structures.
+                    vec2 q=base-uMotion*d[k];
+                    ivec2 owner=a+ivec2(k%2,k/2);
+                    if(rootInCell(d[k],lo,hi,base,size,a) &&
+                        all(equal(ivec2(floor(q*size)),owner))) z=max(z,d[k]);
+                }
+                if(z>=0.0) { uv=base-uMotion*z; hit=true; break; }
+                if(lo<=enter) break;
+                // Advance integer indices. Never reconstruct the next cell from
+                // rounded UV: V2 can revisit the same cell until its budget ends.
+                for(int axis=0;axis<2;++axis) if(crossing[axis]>=lo-0.0000001) cell[axis]+=stepCell[axis];
+                hi=lo;
+            }
+            // No background is available for a failed ray. V3 does not copy
+            // hair/sleeve/pearl pixels into the hole or stretch nearby textures.
+            // Diagnostic-only pass: red=failed ray intersection, black=hit.
+            // The renderer reads this mask back only when the user requests a measurement.
+            if (uMeasureFallback == 1) {
+                fragColor = vec4(hit ? 0.0 : 1.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
+            if(!hit) {
+                float tile=mod(floor(gl_FragCoord.x/8.0)+floor(gl_FragCoord.y/8.0),2.0);
+                color=mix(vec3(0.12),vec3(0.20),tile); // explicit unknown background
+            }
+            if (uClockEnabled == 1) {
+                vec4 clock = texture(uClock, vUV);
+                float mask = hit ? texture(uMask, uv).r : 1.0;
+                // GLUtils uploads premultiplied clock pixels. Both image and mask
+                // use the same ray intersection UV, avoiding displaced contours.
+                float visible = 1.0 - mask;
+                color = color * (1.0 - clock.a * visible) + clock.rgb * visible;
+            }
+            if (uShowFallback == 1 && !hit) color = vec3(1.0, 0.0, 1.0);
+            fragColor = vec4(color, 1.0);
+            if (uProbe == 1) {
+                // Same production ray above; encode its actual intersection, not a formula.
+                if (gl_FragCoord.y < 3.0) {
+                    vec2 q = floor(clamp(uv, 0.0, 1.0) * 65535.0 + 0.5);
+                    fragColor = vec4(floor(q.x/256.0), mod(q.x,256.0), floor(q.y/256.0), mod(q.y,256.0))/255.0;
+                } else fragColor = vec4(depthAt(uv), hit ? 0.0 : 1.0, 0.0, 1.0);
+            }
+        }
+        """.trimIndent()
+    // Frozen diagnostic reference: d21e59e (V1 diagnostics), unmodified algorithm.
+    val spatialV1Fragment = """
+        #version 300 es
+        precision highp float;
+        uniform highp sampler2D uImage;
+        uniform highp sampler2D uDepth;
+        uniform vec2 uCover;
+        uniform vec2 uMotion;
+        uniform vec2 uCamera;
+        uniform vec2 uDepthRange;
+        uniform vec2 uTexel;
+        uniform float uSurfaceTolerance;
+        uniform int uShowFallback;
+        uniform int uMeasureFallback;
+        uniform int uProbe;
+        uniform vec2 uProbeUV[3];
+        uniform sampler2D uClock;
+        uniform sampler2D uMask;
+        uniform int uClockEnabled;
+        in vec2 vUV;
+        out vec4 fragColor;
+        bool validUV(vec2 uv) {
+            return all(greaterThanEqual(uv, uTexel)) && all(lessThanEqual(uv, 1.0-uTexel));
+        }
+        float depthAt(vec2 uv) {
+            float span = uDepthRange.y - uDepthRange.x;
+            if (span < 1.0 / 255.0) return 0.5;
+            ivec2 size = textureSize(uDepth, 0);
+            ivec2 exact = clamp(ivec2(clamp(uv, uTexel, 1.0-uTexel) * vec2(size)), ivec2(0), size-1);
+            // Use identical integer addressing for visibility and source color.
+            float value = texelFetch(uDepth, exact, 0).r;
+            return clamp((value-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
+        }
+        vec3 imageAt(vec2 uv) {
+            ivec2 size = textureSize(uDepth, 0);
+            vec2 p = clamp(uv, uTexel, 1.0-uTexel) * vec2(size) - 0.5;
+            ivec2 a = clamp(ivec2(floor(p)), ivec2(0), size-1);
+            ivec2 b = min(a+1, size-1);
+            float d0 = texelFetch(uDepth, a, 0).r;
+            float d1 = texelFetch(uDepth, ivec2(b.x,a.y), 0).r;
+            float d2 = texelFetch(uDepth, ivec2(a.x,b.y), 0).r;
+            float d3 = texelFetch(uDepth, b, 0).r;
+            float range = max(max(d0,d1),max(d2,d3))-min(min(d0,d1),min(d2,d3));
+            if (range > max(0.15, uDepthRange.y-uDepthRange.x) * 0.12) {
+                // Do not bilinearly leak foreground color onto a far-depth sample.
+                // This is source-pixel selection only, not blur or content synthesis.
+                ivec2 exact = clamp(ivec2(uv * vec2(size)), ivec2(0), size-1);
+                return texelFetch(uImage, exact, 0).rgb;
+            }
+            return texture(uImage, uv).rgb;
+        }
+        void main() {
+            // Camera offset moves even the far plane. Relative depth remains continuous.
+            vec2 screenUV = uProbe == 1 ? uProbeUV[int(gl_FragCoord.y) % 3] : vUV;
+            vec2 base = (screenUV - 0.5) * uCover + 0.5 - uCamera;
+            vec2 uv = base;
+            float previous = 1.0;
+            bool hit = false;
+            for (int i = 0; i <= 32; ++i) {
+                float z = 1.0 - float(i) / 32.0;
+                vec2 candidate = base - uMotion * z;
+                // Outside-source near rays are NOT surfaces. Clamping them would
+                // fabricate a foreground wall and swallow real background motion.
+                if (!validUV(candidate)) { previous = z; continue; }
+                float depth = depthAt(candidate);
+                if (depth >= z) {
+                    float lo = z;
+                    float hi = previous;
+                    for (int j = 0; j < 5; ++j) {
+                        float mid = (lo + hi) * 0.5;
+                        if (validUV(base - uMotion * mid) && depthAt(base - uMotion * mid) >= mid) lo = mid;
+                        else hi = mid;
+                    }
+                    float surface = (lo + hi) * 0.5;
+                    vec2 intersection = base - uMotion * surface;
+                    // A depth discontinuity is not a real connecting surface: do not
+                    // stretch a face/pearl/background texel across the vertical wall.
+                    if (validUV(intersection) && abs(depthAt(intersection) - surface) <= uSurfaceTolerance) {
+                        uv = intersection; hit = true; break;
+                    }
+                }
+                previous = z;
+            }
+            // Bounded fallback: choose the least inconsistent of actual source samples.
+            // No invented content. Unseen backgrounds still cannot be recovered.
+            if (!hit) {
+                float sourceDepth = depthAt(base);
+                vec2 local = base - uMotion * sourceDepth;
+                vec2 farSample = base;
+                float localError = abs(depthAt(local) - sourceDepth);
+                float farError = depthAt(farSample);
+                uv = validUV(local) && localError <= farError ? local : farSample;
+            }
+            // Diagnostic-only pass: red=failed ray intersection, black=hit.
+            // The renderer reads this mask back only when the user requests a measurement.
+            if (uMeasureFallback == 1) {
+                fragColor = vec4(hit ? 0.0 : 1.0, 0.0, 0.0, 1.0);
+                return;
+            }
+            vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
+            if (uClockEnabled == 1) {
+                vec4 clock = texture(uClock, vUV);
+                float mask = texture(uMask, uv).r;
+                // GLUtils uploads premultiplied clock pixels. Both image and mask
+                // use the same ray intersection UV, avoiding displaced contours.
+                float visible = 1.0 - mask;
+                color = color * (1.0 - clock.a * visible) + clock.rgb * visible;
+            }
+            if (uShowFallback == 1 && !hit) color = vec3(1.0, 0.0, 1.0);
+            fragColor = vec4(color, 1.0);
+            if (uProbe == 1) {
+                // Same production ray above; encode its actual intersection, not a formula.
+                if (gl_FragCoord.y < 3.0) {
+                    vec2 q = floor(clamp(uv, 0.0, 1.0) * 65535.0 + 0.5);
+                    fragColor = vec4(floor(q.x/256.0), mod(q.x,256.0), floor(q.y/256.0), mod(q.y,256.0))/255.0;
+                } else fragColor = vec4(depthAt(uv), hit ? 0.0 : 1.0, 0.0, 1.0);
+            }
+        }
+        """.trimIndent()
+    // Frozen diagnostic reference: 1178e5a (V2 shipped), unmodified algorithm.
+    val spatialV2Fragment = """
+        #version 300 es
+        precision highp float;
         uniform highp sampler2D uImage;
         uniform highp sampler2D uDepth;
         uniform vec2 uCover;

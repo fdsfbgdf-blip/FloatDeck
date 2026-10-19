@@ -94,6 +94,52 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             id = R.id.spatial_diagnostic_restore; text = "恢复陀螺仪（以当前握姿重新居中）"
             setOnClickListener { manual = false; x = 0f; y = 0f; horizontal.progress = 100; vertical.progress = 100; renderer.forcedView = null; sensor.recenterSpatial(); renderer.recenter() }
         })
+        controls.addView(TextView(this).apply { text = "算法 A/B：固定视角后切换；V1/V2 为冻结诊断版本，V3 灰棋盘表示缺失背景" })
+        var previousAlgorithm = 2
+        controls.addView(Spinner(this).apply {
+            id = R.id.spatial_diagnostic_algorithm
+            adapter = ArrayAdapter(this@SpatialDiagnosticActivity, android.R.layout.simple_spinner_dropdown_item,
+                SpatialAlgorithm.entries.map { it.label })
+            setSelection(2)
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                    if (position != previousAlgorithm) {
+                        x = renderer.diagnostics.viewX; y = renderer.diagnostics.viewY; manual = true
+                        horizontal.progress = (100+x*100).toInt(); vertical.progress = (100+y*100).toInt()
+                        renderer.forcedView = SpatialPose.Input(x,y)
+                    }
+                    previousAlgorithm = position
+                    renderer.diagnosticAlgorithm = SpatialAlgorithm.entries[position]
+                    preview.requestRender()
+                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+            }
+        })
+        controls.addView(Button(this).apply {
+            id = R.id.spatial_diagnostic_capture
+            text = "冻结当前视角，导出 V1/V2/V3 彩色对照与性能 ZIP"
+            setOnClickListener {
+                x = renderer.diagnostics.viewX; y = renderer.diagnostics.viewY; manual = true
+                horizontal.progress = (100+x*100).toInt(); vertical.progress = (100+y*100).toInt()
+                renderer.forcedView = SpatialPose.Input(x,y)
+                renderer.captureComparisonRequested = true; preview.requestRender()
+                Toast.makeText(this@SpatialDiagnosticActivity,"按当前视角导出；同步计时期间预览会短暂停顿",Toast.LENGTH_LONG).show()
+            }
+        })
+        controls.addView(Button(this).apply {
+            text = "分享最近一次对照 ZIP（含正常截图、掩码、参数与计时）"
+            setOnClickListener {
+                val file = renderer.comparisonZip
+                if(file == null || !file.isFile) Toast.makeText(this@SpatialDiagnosticActivity,renderer.comparisonMessage,Toast.LENGTH_LONG).show()
+                else {
+                    val uri = androidx.core.content.FileProvider.getUriForFile(this@SpatialDiagnosticActivity,
+                        "$packageName.fileprovider",file)
+                    startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND)
+                        .setType("application/zip").putExtra(android.content.Intent.EXTRA_STREAM,uri)
+                        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION),"分享渲染对照"))
+                }
+            }
+        })
         controls.addView(CheckBox(this).apply {
             id = R.id.spatial_diagnostic_depth_mode
             text = "原始深度图 / APP 修整后深度图：勾选为原始（仅本页）"
@@ -122,7 +168,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             text = "使用明显检测幅度（仅本页：增强模式 / 强度 100% / 请求 12% / 响应角 12°）"
             setOnCheckedChangeListener { _, checked -> renderer.diagnosticBoost = checked }
         })
-        controls.addView(TextView(this).apply { text = "先固定一个视角和强度，勾选/取消 A/B 对照，比较头发、手指、衣料、珍珠边缘是否变化；每次切换后等待纹理重新加载。再勾选紫色回退区域，最后点击 GPU 求交失败比例测量。把强度和方向保持不变，分别在中心视角、最大水平、最大垂直、斜向最大位移各测一次。注意：失败比例也可能包含画面边缘源图余量不足，不等于人物轮廓破损比例。\n先导入 diagnostic_3d：来回拖滑块，上方远景应移动少，下方近景应移动多。再导入恒深度包：只能整体平移，不应有层间差异。\nA 滑块也不动：看 GL/深度/强度。B 滑块正常、转手机不动：看事件计数、事件年龄与姿态。C 测试包正常、原图不明显：比较强度与估计像素差。GPU=0 或构建通过都不代表真机视觉已通过。\n本页对照和强制视角不保存到正式壁纸；返回主界面后可正常设为动态壁纸。" })
+        controls.addView(TextView(this).apply { text = "先固定一个视角和强度，切换 V1/V2/V3 算法，分别检查正常彩色画面和紫色掩码；灰棋盘明确表示无可信背景，不是修复完成。导出按钮冻结当前实际视角，保存三算法同参数 PNG 和性能记录。没有真实手机/原素材对照不能确认横纹或人物完整性已修复。再勾选/取消原始深度 A/B 对照，比较头发、手指、衣料、珍珠边缘是否变化；每次切换后等待纹理重新加载。再勾选紫色回退区域，最后点击 GPU 求交失败比例测量。把强度和方向保持不变，分别在中心视角、最大水平、最大垂直、斜向最大位移各测一次。注意：失败比例也可能包含画面边缘源图余量不足，不等于人物轮廓破损比例。\n先导入 diagnostic_3d：来回拖滑块，上方远景应移动少，下方近景应移动多。再导入恒深度包：只能整体平移，不应有层间差异。\nA 滑块也不动：看 GL/深度/强度。B 滑块正常、转手机不动：看事件计数、事件年龄与姿态。C 测试包正常、原图不明显：比较强度与估计像素差。GPU=0 或构建通过都不代表真机视觉已通过。\n本页对照和强制视角不保存到正式壁纸；返回主界面后可正常设为动态壁纸。" })
         worker.execute {
             val path = SpatialPackageStore.previewPrefs(this).getString("original", null)
             val size = runCatching {
@@ -141,6 +187,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
         val component = runCatching { WallpaperManager.getInstance(this).wallpaperInfo?.component?.flattenToShortString() }.getOrNull() ?: "静态壁纸/系统未返回组件"
         val sessions = SpatialWallpaperRuntime.sessions.values.sortedByDescending { it.render.lastFrameNanos }.take(3)
         info.text = buildString {
+            appendLine("算法：${s.algorithm}；${renderer.comparisonMessage}")
             appendLine("当前：${SpatialPackageStore.previewPrefs(this@SpatialDiagnosticActivity).getString("package_name", s.name)}；模式：空间 GPU / ${if (manual) "强制视角，完全绕过姿态" else "相对姿态"}")
             appendLine("源原图：$originalSize；实际上传原图：${s.imageWidth}×${s.imageHeight}；深度：${s.depthWidth}×${s.depthHeight}")
             appendLine("白近黑远；最小 ${s.depthMin} / 最大 ${s.depthMax} / 变化范围 ${s.depthMax - s.depthMin} / ${s.depthLevels} 个灰度级")
@@ -159,7 +206,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             appendLine("估计本预览近远像素差：水平 ${f(s.estimatedNearFarPixelsX)} / 垂直 ${f(s.estimatedNearFarPixelsY)}（不是实测像素）")
             appendLine(s.renderedOffset)
             appendLine("求交失败测量：${s.fallbackMeasureMessage}；失败像素 ${if (s.fallbackPixels >= 0) s.fallbackPixels.toString() else "未测/失败"}；比例 ${if (s.fallbackPercent >= 0f) "${f(s.fallbackPercent)}%" else "未测/失败"}；总采样像素 ${s.fallbackSampleWidth.toLong()*s.fallbackSampleHeight}；采样画面 ${s.fallbackSampleWidth}×${s.fallbackSampleHeight}")
-            if (s.fallbackPercent >= 0f) appendLine("测量快照：${s.fallbackSampleDepthMode}；视角 ${f(s.fallbackSampleViewX)}, ${f(s.fallbackSampleViewY)}；GPU 位移 ${f(s.fallbackSampleMotionX)}, ${f(s.fallbackSampleMotionY)}；强度 ${f(s.fallbackSampleStrength*100)}%；强制模式=${s.fallbackSampleForced}；GL错误=${s.fallbackGlError}；测量年龄=${age(s.fallbackCapturedNanos)}（改动视角后需重测）")
+            if (s.fallbackPercent >= 0f) appendLine("测量快照：${s.fallbackSampleAlgorithm} / ${s.fallbackSampleDepthMode}；视角 ${f(s.fallbackSampleViewX)}, ${f(s.fallbackSampleViewY)}；GPU 位移 ${f(s.fallbackSampleMotionX)}, ${f(s.fallbackSampleMotionY)}；强度 ${f(s.fallbackSampleStrength*100)}%；强制模式=${s.fallbackSampleForced}；GL错误=${s.fallbackGlError}；测量年龄=${age(s.fallbackCapturedNanos)}（改动视角后需重测）")
             if (s.depthMax - s.depthMin < 16) appendLine("C 提示：深度变化很小/恒定；预期无法形成明显层间视差。")
             if (s.strength == 0f) appendLine("C 提示：强度为 0，任何视角输入都会静止。")
             appendLine("系统当前组件：$component")

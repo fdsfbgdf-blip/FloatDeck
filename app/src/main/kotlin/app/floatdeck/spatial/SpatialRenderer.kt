@@ -25,6 +25,19 @@ class SpatialRenderer(
     private var normalizationMin = 0
     private var normalizationMax = 255
     private var program = 0
+    private val programs = mutableMapOf<SpatialAlgorithm, Int>()
+    @Volatile var diagnosticAlgorithm = SpatialAlgorithm.V3
+    @Volatile var captureComparisonRequested = false
+    @Volatile var comparisonMessage = "尚未导出彩色对照与性能记录"
+        private set
+    @Volatile var comparisonZip: File? = null
+        private set
+    private var activeAlgorithm = SpatialAlgorithm.V3
+    private fun selectProgram(algorithm: SpatialAlgorithm) {
+        program = programs.getValue(algorithm)
+        uniforms.clear()
+        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uMeasureFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
+    }
     private val textures = IntArray(2)
     private val clockTextures = IntArray(2)
     private var maskPath = ""
@@ -65,12 +78,19 @@ class SpatialRenderer(
             glVersion = GL.glGetString(GL.GL_VERSION) ?: "GL 版本不可用",
             gpu = GL.glGetString(GL.GL_RENDERER) ?: "GPU 信息不可用",
         )
-        program = try { ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialFragment) } catch (error: Exception) {
+        programs.clear() // IDs from a lost context must not be deleted in the new context.
+        try {
+            programs[SpatialAlgorithm.V3] = ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialFragment)
+            if (diagnosticSession) {
+                programs[SpatialAlgorithm.V1] = ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialV1Fragment)
+                programs[SpatialAlgorithm.V2] = ShaderProgram.compile(Shaders.spatialVertex, Shaders.spatialV2Fragment)
+            }
+            activeAlgorithm = SpatialAlgorithm.V3
+            selectProgram(activeAlgorithm)
+        } catch (error: Exception) {
             diagnostics = diagnostics.copy(message = "空间着色器编译/链接失败：${error.message}")
-            0
+            program = 0
         }
-        uniforms.clear()
-        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uMeasureFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
         probe = SpatialGpuProbe() // context-owned IDs cannot survive context recreation
         probePoints = emptyList()
         textures.fill(0)
@@ -101,6 +121,13 @@ class SpatialRenderer(
         val signature = paths.joinToString("|") + "|depthMode=${if (originalDepth) "original" else "repaired"}"
         val now = android.os.SystemClock.elapsedRealtimeNanos()
         if (program == 0) return
+        val algorithm = if (diagnosticSession) diagnosticAlgorithm else SpatialAlgorithm.V3
+        if (algorithm != activeAlgorithm) {
+            activeAlgorithm = algorithm
+            selectProgram(algorithm)
+            diagnostics = diagnostics.copy(fallbackPixels = -1, fallbackPercent = -1f,
+                fallbackMeasureMessage = "算法已切换，旧测量已作废", renderedOffset = "算法已切换，等待重新测量")
+        }
         if (signature != loaded && (signature != failedSignature || now >= retryAt)) {
             failedSignature = signature
             retryAt = now + 1_000_000_000L
@@ -278,6 +305,7 @@ class SpatialRenderer(
                     fallbackSampleMotionX = mx * cover[0],
                     fallbackSampleMotionY = my * cover[1],
                     fallbackSampleStrength = strength,
+                    fallbackSampleAlgorithm = activeAlgorithm.name,
                     fallbackSampleDepthMode = if (originalDepth) "原始深度" else "APP 修整深度",
                 )
             } catch (error: Exception) {
@@ -301,12 +329,28 @@ class SpatialRenderer(
         }
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
+        if (captureComparisonRequested) {
+            captureComparisonRequested = false
+            if (diagnosticSession) {
+                comparisonMessage = "正在导出同参数彩色帧、失败掩码与同步/GPU计时"
+                runCatching {
+                    comparisonZip = SpatialComparisonCapture.capture(context, programs, program, width, height,
+                        org.json.JSONObject().put("view_x", x).put("view_y", y).put("strength", strength)
+                            .put("mode", mode).put("depth_mode", if(originalDepth) "original" else "repaired")
+                            .put("motion_x", mx*cover[0]).put("motion_y", my*cover[1])
+                            .put("normalization_min", normalizationMin).put("normalization_max", normalizationMax)
+                            .put("gpu", diagnostics.gpu).put("gl", diagnostics.glVersion), paths)
+                    comparisonMessage = "对照 ZIP 已生成；各算法使用同一纹理/视角/强度，未知背景棋盘并非补全"
+                }.onFailure { comparisonZip = null; comparisonMessage = "对照导出失败：${it.message}" }
+            }
+        }
         if (measureRequested) {
             measureRequested = false
             diagnostics = diagnostics.copy(renderedOffset = probe.measure(program, probePoints, cover, width, height, mx*cover[0], my*cover[1]) +
                 "\n捕获视角 %.3f, %.3f；捕获时间 %d ms（调整视角后需重新点击）".format(java.util.Locale.US,x,y,now/1_000_000))
         }
         diagnostics = diagnostics.copy(
+            algorithm = activeAlgorithm.name,
             ready = drawError == GL.GL_NO_ERROR,
             message = if (drawError == GL.GL_NO_ERROR) "空间 GPU 高度场绘制正常；GL=0" else "绘制错误 GL=0x${drawError.toString(16)}",
             frames = diagnostics.frames + 1, lastFrameNanos = now,
@@ -399,7 +443,8 @@ class SpatialRenderer(
 
     fun release() {
         releaseImages()
-        if (program != 0) GL.glDeleteProgram(program)
+        programs.values.forEach { GL.glDeleteProgram(it) }
+        programs.clear()
         program = 0
         ready = false
     }

@@ -1,6 +1,8 @@
 """GPU vs independent exact nearest-depth oracle; includes one-pixel foreground.
 Run from repository root with Mesa EGL ES3. No Android/device claims.
 """
+import os
+os.environ['FLOATDECK_ALGORITHM']='v2'  # frozen nearest-depth model, deliberately not V3's continuous surface
 exec(compile(open('scripts/spatial-render-check.py').read(), 'spatial-render-check.py', 'exec'))
 import math
 # Photo deliberately has twice the depth resolution; channels encode source UV.

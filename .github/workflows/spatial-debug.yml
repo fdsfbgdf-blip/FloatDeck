@@ -1,7 +1,7 @@
 name: Spatial Debug APK
 on:
   push:
-    branches: [spatial-v1, spatial-render-diagnostics, spatial-render-fix-v2]
+    branches: [spatial-v1, spatial-render-diagnostics, spatial-render-fix-v2, spatial-render-fix-v3]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,6 +22,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Install shader validator
         run: sudo apt-get update && sudo apt-get install -y glslang-tools libegl1 libgl1 libgl1-mesa-dri
+      - name: Install color regression dependencies
+        run: python3 -m pip install numpy Pillow
+      - name: Normal color screenshots and GPU timings
+        run: python3 scripts/spatial-color-regression.py
       - name: Exact ray GPU regression
         run: python3 scripts/spatial-ray-regression.py
       - name: Build original sample packages
@@ -38,7 +42,7 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-Render-Fix-V2
+          name: FloatDeck-Spatial-Render-Fix-V3
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
@@ -52,6 +56,8 @@ jobs:
             SPATIAL_V1_3.md
             SPATIAL_APP_DIAGNOSTIC_STEP1.md
             SPATIAL_RENDER_FIX_V2.md
+            SPATIAL_RENDER_FIX_V3.md
+            work/v3-gpu/
 
   android-integration:
     runs-on: ubuntu-latest
@@ -91,11 +97,12 @@ jobs:
             cat work/android-smoke/strength-comparison.csv
             adb exec-out run-as app.floatdeck.dev cat cache/render-diagnostics.csv > work/android-smoke/render-diagnostics.csv
             cat work/android-smoke/render-diagnostics.csv
+            adb exec-out run-as app.floatdeck.dev cat cache/v3-comparison.zip > work/android-smoke/v3-comparison.zip
             python3 scripts/check-spatial-android-flow.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FloatDeck-Spatial-Render-Fix-V2-Android-tests
+          name: FloatDeck-Spatial-Render-Fix-V3-Android-tests
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

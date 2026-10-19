@@ -147,4 +147,70 @@ class SpatialRenderABTest {
             }
         } finally { diagnostic.release() }
     } }
+    @Test fun runtimeAlgorithmsShareTexturesPoseStrengthAndInvalidateMeasurement()=fixture { prefs,files -> withGl {
+        val renderer=SpatialRenderer(context,prefs,diagnosticSession=true)
+        val saved=prefs.all.toMap(); val bytes=files.map { it.readBytes() }
+        renderer.onSurfaceCreated(null,null);renderer.onSurfaceChanged(null,w,h)
+        renderer.forcedView=SpatialPose.Input(0.8f,0.51f)
+        try {
+            renderer.onDrawFrame(null);val base=renderer.diagnostics
+            for(algorithm in listOf(SpatialAlgorithm.V1,SpatialAlgorithm.V2,SpatialAlgorithm.V3)) {
+                renderer.diagnosticAlgorithm=algorithm;renderer.onDrawFrame(null)
+                val d=renderer.diagnostics
+                assertTrue(d.message,d.ready);assertEquals(algorithm.name,d.algorithm)
+                assertEquals(base.imageTexture,d.imageTexture);assertEquals(base.depthTexture,d.depthTexture)
+                assertEquals(base.viewX,d.viewX,0f);assertEquals(base.viewY,d.viewY,0f)
+                assertEquals(base.motionX,d.motionX,0f);assertEquals(base.motionY,d.motionY,0f)
+                assertEquals(base.strength,d.strength,0f);assertEquals(base.cameraX,d.cameraX,0f)
+                assertEquals(base.normalizationMin,d.normalizationMin);assertEquals(base.normalizationMax,d.normalizationMax)
+                assertEquals(-1,d.fallbackPixels)
+                renderer.measureFallbackRequested=true;renderer.onDrawFrame(null)
+                assertEquals(algorithm.name,renderer.diagnostics.fallbackSampleAlgorithm)
+                assertEquals(0,renderer.diagnostics.fallbackGlError)
+            }
+            assertEquals(saved,prefs.all)
+            files.forEachIndexed { index,file -> assertArrayEquals(bytes[index],file.readBytes()) }
+        } finally { renderer.release() }
+        val production=SpatialRenderer(context,prefs)
+        try {
+            production.onSurfaceCreated(null,null);production.onSurfaceChanged(null,w,h)
+            production.diagnosticAlgorithm=SpatialAlgorithm.V1;production.onDrawFrame(null)
+            assertEquals("V3",production.diagnostics.algorithm)
+        } finally { production.release() }
+    } }
+    @Test fun exportContainsNormalColorMasksIdenticalUniformMetadataAndMeasuredTimings()=fixture { prefs,_ -> withGl {
+        val renderer=SpatialRenderer(context,prefs,diagnosticSession=true)
+        renderer.onSurfaceCreated(null,null);renderer.onSurfaceChanged(null,w,h)
+        renderer.forcedView=SpatialPose.Input(0.8f,0.51f)
+        try {
+            renderer.onDrawFrame(null);val normal=frame()
+            renderer.captureComparisonRequested=true;renderer.onDrawFrame(null)
+            val file=renderer.comparisonZip
+            assertNotNull(renderer.comparisonMessage,file)
+            java.util.zip.ZipFile(file!!).use { zip ->
+                for(algorithm in SpatialAlgorithm.entries) {
+                    val entry=zip.getEntry("${algorithm.name}-normal.png");assertNotNull(entry)
+                    val b=android.graphics.BitmapFactory.decodeStream(zip.getInputStream(entry))
+                    try {
+                        assertEquals(w,b.width);assertEquals(h,b.height)
+                        val colors=mutableSetOf<Int>()
+                        for(y in 0 until h step 7) for(x in 0 until w step 7) colors.add(b.getPixel(x,y))
+                        assertTrue("Normal export must contain source color, not just a binary diagnostic",colors.size>32)
+                    } finally { b.recycle() }
+                    assertNotNull(zip.getEntry("${algorithm.name}-failure-mask.png"))
+                }
+                val meta=org.json.JSONObject(zip.getInputStream(zip.getEntry("metadata.json")).bufferedReader().readText())
+                assertEquals(0.8,meta.getDouble("view_x"),0.0001)
+                assertEquals(0.51,meta.getDouble("view_y"),0.0001)
+                assertEquals(1.0,meta.getDouble("strength"),0.0)
+                assertEquals(64,meta.getString("source_0_sha256").length)
+                val timing=zip.getInputStream(zip.getEntry("performance.csv")).bufferedReader().readText()
+                assertEquals(4,timing.trim().lines().size)
+                assertTrue(timing.contains("sync_median_ms"))
+            }
+            assertArrayEquals("Capture must restore normal preview",normal,frame())
+            file.copyTo(File(context.cacheDir,"v3-comparison.zip"),overwrite=true)
+        } finally { renderer.release() }
+    } }
+
 }

@@ -1,5 +1,5 @@
 """Exercise the shipped spatial shader on Mesa EGL ES3, without Android UI."""
-import ctypes as C, re, json
+import ctypes as C, re, json, os
 from pathlib import Path
 E=C.CDLL('libEGL.so.1'); G=C.CDLL('libGL.so.1')
 I=C.c_int; U=C.c_uint; P=C.c_void_p; F=C.c_float
@@ -21,7 +21,7 @@ assert fn(E,'eglMakeCurrent',U,[P,P,P,P])(d,surf,surf,ctx)
 def gl(name,ret,args,*vals): return fn(G,name,ret,args)(*vals)
 shadertext=Path('app/src/main/kotlin/app/floatdeck/gl/Shaders.kt').read_text()
 sh=[]
-for name,typ in [('spatialVertex',0x8B31),('spatialFragment',0x8B30)]:
+for name,typ in [('spatialVertex',0x8B31),({'v1':'spatialV1Fragment','v2':'spatialV2Fragment','v3':'spatialFragment'}[os.environ.get('FLOATDECK_ALGORITHM','v3')],0x8B30)]:
     body=re.search(r'val '+name+r'\s*=\s*"""(.*?)"""',shadertext,re.S)[1].strip().encode()
     s=gl('glCreateShader',U,[U],typ); text=C.c_char_p(body)
     gl('glShaderSource',None,[U,I,C.POINTER(C.c_char_p),P],s,1,C.byref(text),None)

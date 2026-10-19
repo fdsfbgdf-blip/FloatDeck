@@ -16,4 +16,6 @@
     <item name="spatial_diagnostic_depth_mode" type="id" />
     <item name="spatial_diagnostic_fallback" type="id" />
     <item name="spatial_diagnostic_measure_fallback" type="id" />
+    <item name="spatial_diagnostic_algorithm" type="id" />
+    <item name="spatial_diagnostic_capture" type="id" />
 </resources>

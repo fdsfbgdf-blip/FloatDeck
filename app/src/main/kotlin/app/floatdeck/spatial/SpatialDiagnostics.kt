@@ -2,6 +2,8 @@ package app.floatdeck.spatial
 
 /** Immutable GL-thread snapshot; dimensions/statistics describe the bitmap actually uploaded. */
 data class SpatialRenderStatus(
+    val algorithm: String = "V3",
+    val fallbackSampleAlgorithm: String = "未测",
     val name: String = "未选择壁纸",
     val packageId: String = "",
     val imageWidth: Int = 0,
