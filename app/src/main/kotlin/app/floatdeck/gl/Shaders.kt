@@ -260,8 +260,24 @@ object Shaders {
             return clamp((value-uDepthRange.x) / max(0.15, span), 0.0, 1.0);
         }
         vec3 imageAt(vec2 uv) {
-            // Preserve photo reconstruction in photo coordinates, including at
-            // zero motion. No depth-dependent color weights or detail filtering.
+            // At rest the photo must be identical to direct texture sampling.
+            // Under parallax, a bilinear footprint straddling a real depth jump
+            // can leave foreground-colored pixels at the OLD silhouette.
+            // Select the owning photo texel there; never redistribute color weights.
+            if(dot(uMotion,uMotion)>0.000000000001) {
+                ivec2 size=textureSize(uDepth,0);
+                ivec2 a=clamp(ivec2(floor(uv*vec2(size)-0.5)),ivec2(0),size-2);
+                float d0=texelFetch(uDepth,a,0).r;
+                float d1=texelFetch(uDepth,a+ivec2(1,0),0).r;
+                float d2=texelFetch(uDepth,a+ivec2(0,1),0).r;
+                float d3=texelFetch(uDepth,a+ivec2(1,1),0).r;
+                float range=max(max(d0,d1),max(d2,d3))-min(min(d0,d1),min(d2,d3));
+                if(range>max(0.15,uDepthRange.y-uDepthRange.x)*0.12) {
+                    ivec2 photoSize=textureSize(uImage,0);
+                    ivec2 owner=clamp(ivec2(floor(uv*vec2(photoSize))),ivec2(0),photoSize-1);
+                    return texelFetch(uImage,owner,0).rgb;
+                }
+            }
             return texture(uImage, uv).rgb;
         }
         float normalizedValue(float value) {

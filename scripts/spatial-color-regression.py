@@ -101,6 +101,31 @@ for name in ['identity','identity-mismatched','quantized-slope','discontinuity']
             assert not (foreground&mask).any(),'unknown background may not contain foreground copies'
             assert np.all(normal[mask,0]==normal[mask,1]) and np.all(normal[mask,1]==normal[mask,2])
     report['fixtures'].append(item)
+# A normal-color contour test catches HIT-region bilinear color leaks: a correct
+# root can still sample foreground color at the original, undisplaced silhouette.
+yc,xc=np.mgrid[:1280,:720];near=(xc-360)**2+(yc-640)**2<120**2
+circle_photo=rgba(np.where(near[...,None],np.array([255,0,0]),np.array([0,255,0])).astype(np.uint8))
+circle_depth=np.where(near,255,0).astype(np.uint8)
+upload(0,circle_photo);upload(1,rgba(np.repeat(circle_depth[...,None],3,axis=2)))
+def contour(pixels):
+    red=(pixels[...,0]>180)&(pixels[...,1]<80)
+    yy,xx=np.where(red)
+    return np.array([red.sum(),xx.max()-xx.min(),yy.max()-yy.min()])
+base_circle=contour(draw(0,0));circle_results=[]
+for mx,my in [(.0162,0),(-.0162,0),(.0648,0),(0,.0648),(.05184,.033048)]:
+    normal=draw(mx,my);bounds=contour(normal)
+    circle_results.append({'motion':[mx,my],'area_width_height':bounds.tolist()})
+    if args.algorithm=='v3':
+        assert abs(int(bounds[0])-int(base_circle[0]))<base_circle[0]*.02,(base_circle,bounds)
+        assert np.all(np.abs(bounds[1:]-base_circle[1:])<=2),(base_circle,bounds)
+Image.fromarray(normal).save(output/f'{args.algorithm}-circle-normal.png')
+report['normal_circle']={'base_area_width_height':base_circle.tolist(),'cases':circle_results}
+# Restore the same large-texture discontinuity fixture for timing all algorithms.
+near=(xd>400)&(xd<740)&(yd>650)&(yd<1450)
+upload(0,rgba(np.where(near[...,None],np.array([245,15,10]),np.array([15,190,55])).astype(np.uint8)))
+upload(1,rgba(np.repeat(np.where(near,255,0).astype(np.uint8)[...,None],3,axis=2)))
+gl('glUniform2f',None,[I,F,F],loc('uMotion'),.096,.0612)
+gl('glUniform2f',None,[I,F,F],loc('uCamera'),.096*.3,.0612*.3)
 # Timings at 720x1280 on the same uploaded full-resolution fixture, same motion.
 gl('glUniform1i',None,[I,I],loc('uMeasureFallback'),0)
 gl('glViewport',None,[I,I,I,I],0,0,720,1280)
