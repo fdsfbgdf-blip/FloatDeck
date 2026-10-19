@@ -155,7 +155,9 @@ class SpatialGpuDiagnosticTest {
                                 val d = renderer.diagnostics
                                 val cover = SpatialMath.cover(720f/1280, 720f/1280, crop)
                                 val requested = old * (if (strength == 0.5f) 1f else 2f)
-                                val allowed = SpatialMath.safeAmplitude(requested, cover, 720, 1280, 720, 1280)
+                                // Far-depth source borders genuinely permit the requested ray motion.
+                                // This assertion is stricter than the old capped expectation.
+                                val allowed = requested
                                 assertEquals(requested * 100, d.targetPercent, 0.0001f)
                                 assertEquals(allowed * 100, d.safePercent, 0.0001f)
                                 val expectedNear = input * allowed * 720 * (1f+SpatialMath.CAMERA_SHARE)
@@ -163,8 +165,9 @@ class SpatialGpuDiagnosticTest {
                                 assertEquals("Readback must follow real uniform, not just UI", expectedNear, measuredNear.toFloat(), 2f)
                                 assertEquals(input * allowed * 720, abs(if (axis == 0) d.estimatedNearFarPixelsX else d.estimatedNearFarPixelsY), 0.1f)
                                 if (strength == 0.5f) oldReadback = measuredNear
-                                else if (crop == 0.3f) assertEquals("Unclipped new 100 must double old 100/new 50", 2f*oldReadback, measuredNear.toFloat(), 2f)
-                                if (crop == 0.04f && requested > allowed+0.0001f) assertTrue(d.limitReason.contains("裁切余量不足"))
+                                else assertEquals("Unclipped new 100 must double old 100/new 50", 2f*oldReadback, measuredNear.toFloat(), 2f)
+                                assertEquals(1f,d.extraZoom,0f)
+                                assertTrue(d.limitReason.contains("未截断"))
                                 var fallback = -1
                                 if (strength == 1f && sign > 0) {
                                     renderer.showFallback = true
@@ -176,6 +179,20 @@ class SpatialGpuDiagnosticTest {
                         }
                     }
                 }
+                // A complete continuous direction loop must reach GPU, not merely pose math.
+                prefs.edit().putFloat("strength",1f).putString("parallax_mode","enhanced").putFloat("crop",0.04f).commit()
+                renderer.forcedView=SpatialPose.Input()
+                val neutral=contour()
+                for(sign in listOf(-1,1)) for(i in 0..24) {
+                    val a=0.37+sign*i*Math.PI/12
+                    val vx=(kotlin.math.cos(a)*0.6).toFloat(); val vy=(kotlin.math.sin(a)*0.6).toFloat()
+                    renderer.forcedView=SpatialPose.Input(vx,vy)
+                    val moved=contour()
+                    assertEquals(vx*0.12f*1.3f*720,(moved[3]-neutral[3]).toFloat(),2f)
+                    assertEquals(-vy*0.12f*1.3f*720,(moved[4]-neutral[4]).toFloat(),2f)
+                    assertTrue(abs(moved[0]-neutral[0])<neutral[0]*0.02)
+                    assertTrue(abs(moved[1]-neutral[1])<=3 && abs(moved[2]-neutral[2])<=3)
+                }
                 // Diagnostic boost shares the same doubled enhanced request and safety cap.
                 prefs.edit().putFloat("strength", 0.1f).putString("parallax_mode", "stable").commit()
                 renderer.diagnosticBoost = true; renderer.onDrawFrame(null)
@@ -183,6 +200,58 @@ class SpatialGpuDiagnosticTest {
                 File(context.cacheDir, "strength-comparison.csv").writeText(rows.joinToString("\n") + "\n")
             } finally { renderer.release() }
         } } finally { files.forEach { it.delete() } }
+    }
+
+    @Test fun threeSceneClassesPreserveRealDepthMotionAndReadbackProbeDoesNotChangeVisibleFrame() {
+        val prefs=context.getSharedPreferences("gpu-v13-${UUID.randomUUID()}",0)
+        withGl {
+            val renderer=SpatialRenderer(context,prefs)
+            renderer.onSurfaceCreated(null,null); renderer.onSurfaceChanged(null,720,1280)
+            fun read(axis:Int):List<Float> {
+                renderer.onDrawFrame(null)
+                assertTrue(renderer.diagnostics.message,renderer.diagnostics.ready)
+                val cover=SpatialMath.cover(720f/1280,720f/1280,0.04f)
+                val whole=ByteBuffer.allocateDirect(720*1280*4)
+                GL.glReadPixels(0,0,720,1280,GL.GL_RGBA,GL.GL_UNSIGNED_BYTE,whole)
+                for(i in 0 until 720*1280) {
+                    assertEquals(255,whole.get(i*4+3).toInt() and 255)
+                    assertTrue("Black edge/hole",(whole.get(i*4).toInt() and 255)+(whole.get(i*4+1).toInt() and 255)+(whole.get(i*4+2).toInt() and 255)>10)
+                }
+                return listOf(240 to 260,460 to 630,240 to 1000).map { (sx,sy) ->
+                    val px=(((sx/720f-0.5f)/cover[0]+0.5f)*720).toInt()
+                    val py=1279-(((sy/1280f-0.5f)/cover[1]+0.5f)*1280).toInt()
+                    var sum=0f; var count=0
+                    for(y in py-5..py+5) for(x in px-5..px+5) {
+                        val i=(y*720+x)*4
+                        if((whole.get(i+2).toInt() and 255)<230) { sum+=whole.get(i+axis).toInt() and 255;count++ }
+                    }
+                    assertTrue(count>30); sum/count
+                }
+            }
+            try {
+                for(name in listOf("v13_clear_depth","v13_textured_edge","v13_foreground_edge")) {
+                    SpatialPackageStore.publish(import(name),prefs,false)
+                    prefs.edit().putString("parallax_mode","enhanced").putFloat("strength",1f).commit()
+                    for(axis in 0..1) for(sign in listOf(-1f,1f)) {
+                        renderer.forcedView=SpatialPose.Input()
+                        val neutral=read(axis)
+                        renderer.forcedView=if(axis==0) SpatialPose.Input(sign*0.6f,0f) else SpatialPose.Input(0f,sign*0.6f)
+                        val moved=read(axis)
+                        val differences=moved.zip(neutral).map { abs(it.first-it.second) }
+                        assertTrue("$name $axis/$sign: $differences",differences[0]+1<differences[1] && differences[1]+1<differences[2])
+                        assertTrue("Far plane must move",differences[0]>1)
+                        if(name=="v13_foreground_edge" && axis==0 && sign>0) {
+                            assertTrue(renderer.diagnostics.appliedX<renderer.diagnostics.requestedX)
+                        } else assertEquals(renderer.diagnostics.requestedX,renderer.diagnostics.appliedX,0.0001f)
+                        renderer.measureRequested=true
+                        val measured=read(axis)
+                        assertTrue(renderer.diagnostics.renderedOffset,renderer.diagnostics.renderedOffset.startsWith("GPU源采样位移实测"))
+                        for(i in 0..2) assertEquals("Probe must restore framebuffer and uniforms",moved[i],measured[i],0.01f)
+                        android.util.Log.i("SpatialGpuTest","$name axis=$axis sign=$sign RGB readback=$differences ${renderer.diagnostics.renderedOffset}")
+                    }
+                }
+            } finally { renderer.release() }
+        }
     }
 
     @Test fun samePathRecoversAfterTransientMissingDepthAndContextRecreationReloadsTextures() {

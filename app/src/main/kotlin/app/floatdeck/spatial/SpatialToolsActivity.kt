@@ -42,7 +42,7 @@ class SpatialToolsActivity : ComponentActivity() {
             renderer.tiltX = sensor.spatialInput.x
             renderer.tiltY = sensor.spatialInput.y
             preview.requestRender()
-            handler.postDelayed(this, 33L)
+            handler.postDelayed(this, 16L)
         }
     }
 

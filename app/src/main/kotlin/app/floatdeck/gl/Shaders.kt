@@ -238,11 +238,16 @@ object Shaders {
         uniform vec2 uTexel;
         uniform float uSurfaceTolerance;
         uniform int uShowFallback;
+        uniform int uProbe;
+        uniform vec2 uProbeUV[3];
         uniform sampler2D uClock;
         uniform sampler2D uMask;
         uniform int uClockEnabled;
         in vec2 vUV;
         out vec4 fragColor;
+        bool validUV(vec2 uv) {
+            return all(greaterThanEqual(uv, uTexel)) && all(lessThanEqual(uv, 1.0-uTexel));
+        }
         float depthAt(vec2 uv) {
             float span = uDepthRange.y - uDepthRange.x;
             if (span < 1.0 / 255.0) return 0.5;
@@ -272,27 +277,31 @@ object Shaders {
         }
         void main() {
             // Camera offset moves even the far plane. Relative depth remains continuous.
-            vec2 base = (vUV - 0.5) * uCover + 0.5 - uCamera;
+            vec2 screenUV = uProbe == 1 ? uProbeUV[int(gl_FragCoord.y) % 3] : vUV;
+            vec2 base = (screenUV - 0.5) * uCover + 0.5 - uCamera;
             vec2 uv = base;
             float previous = 1.0;
             bool hit = false;
             for (int i = 0; i <= 32; ++i) {
                 float z = 1.0 - float(i) / 32.0;
                 vec2 candidate = base - uMotion * z;
+                // Outside-source near rays are NOT surfaces. Clamping them would
+                // fabricate a foreground wall and swallow real background motion.
+                if (!validUV(candidate)) { previous = z; continue; }
                 float depth = depthAt(candidate);
                 if (depth >= z) {
                     float lo = z;
                     float hi = previous;
                     for (int j = 0; j < 5; ++j) {
                         float mid = (lo + hi) * 0.5;
-                        if (depthAt(base - uMotion * mid) >= mid) lo = mid;
+                        if (validUV(base - uMotion * mid) && depthAt(base - uMotion * mid) >= mid) lo = mid;
                         else hi = mid;
                     }
                     float surface = (lo + hi) * 0.5;
                     vec2 intersection = base - uMotion * surface;
                     // A depth discontinuity is not a real connecting surface: do not
                     // stretch a face/pearl/background texel across the vertical wall.
-                    if (abs(depthAt(intersection) - surface) <= uSurfaceTolerance) {
+                    if (validUV(intersection) && abs(depthAt(intersection) - surface) <= uSurfaceTolerance) {
                         uv = intersection; hit = true; break;
                     }
                 }
@@ -306,7 +315,7 @@ object Shaders {
                 vec2 farSample = base;
                 float localError = abs(depthAt(local) - sourceDepth);
                 float farError = depthAt(farSample);
-                uv = localError <= farError ? local : farSample;
+                uv = validUV(local) && localError <= farError ? local : farSample;
             }
             vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
             if (uClockEnabled == 1) {
@@ -319,6 +328,13 @@ object Shaders {
             }
             if (uShowFallback == 1 && !hit) color = vec3(1.0, 0.0, 1.0);
             fragColor = vec4(color, 1.0);
+            if (uProbe == 1) {
+                // Same production ray above; encode its actual intersection, not a formula.
+                if (gl_FragCoord.y < 3.0) {
+                    vec2 q = floor(clamp(uv, 0.0, 1.0) * 65535.0 + 0.5);
+                    fragColor = vec4(floor(q.x/256.0), mod(q.x,256.0), floor(q.y/256.0), mod(q.y,256.0))/255.0;
+                } else fragColor = vec4(depthAt(uv), hit ? 0.0 : 1.0, 0.0, 1.0);
+            }
         }
         """.trimIndent()
 }

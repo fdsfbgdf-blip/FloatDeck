@@ -15,6 +15,9 @@ class SpatialRenderer(
     private val context: Context,
     private val prefs: android.content.SharedPreferences = SpatialAssets.prefs(context),
 ) : GLSurfaceView.Renderer {
+    private var probe = SpatialGpuProbe()
+    private var probePoints = emptyList<SpatialGpuProbe.Point>()
+    @Volatile var measureRequested = false
     private var program = 0
     private val textures = IntArray(2)
     private val clockTextures = IntArray(2)
@@ -23,6 +26,7 @@ class SpatialRenderer(
     private var maskReady = false
     @Volatile var showClock = false
     private var loaded = ""
+    private var boundaryProfile: SpatialBoundaryProfile? = null
     private var aspect = 1f
     private var width = 1
     private var height = 1
@@ -57,6 +61,8 @@ class SpatialRenderer(
         }
         uniforms.clear()
         for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
+        probe = SpatialGpuProbe() // context-owned IDs cannot survive context recreation
+        probePoints = emptyList()
         textures.fill(0)
         clockTextures.fill(0)
         minute = -1L
@@ -88,6 +94,7 @@ class SpatialRenderer(
             retryAt = now + 1_000_000_000L
             diagnostics = diagnostics.copy(name = state["package_name"] as? String ?: "高级工具壁纸", packageId = state["package_id"] as? String ?: "", ready = false, message = "正在加载空间纹理")
             ready = false
+            boundaryProfile = null
             GL.glDeleteTextures(2, textures, 0)
             textures.fill(0)
             if (paths.all { !it.isNullOrEmpty() && File(it!!).isFile }) {
@@ -117,6 +124,9 @@ class SpatialRenderer(
                                         min = minOf(min, depth); max = maxOf(max, depth); levels[depth] = true
                                     }
                                 }
+                                boundaryProfile = SpatialBoundaryProfile.create(repaired, bitmap.width, bitmap.height, min, max)
+                                probePoints = SpatialGpuProbe.points(repaired, bitmap.width, bitmap.height, min, max)
+                                diagnostics = diagnostics.copy(renderedOffset = "尚未点击 GPU 实测")
                                 diagnostics = diagnostics.copy(depthWidth = bitmap.width, depthHeight = bitmap.height, depthMin = min, depthMax = max, depthLevels = levels.count { it })
                             }
                             GL.glActiveTexture(GL.GL_TEXTURE0 + index)
@@ -153,17 +163,20 @@ class SpatialRenderer(
         val mode = if (diagnosticBoost) "enhanced" else (state["parallax_mode"] as? String ?: "standard")
         val alpha = SpatialMath.smoothing(dt, speed)
         if (forced != null) {
-            x = forced.x.coerceIn(-1f, 1f); y = forced.y.coerceIn(-1f, 1f)
+            val length = kotlin.math.hypot(forced.x, forced.y).coerceAtLeast(1f)
+            x = forced.x / length; y = forced.y / length
         } else {
-            val targetX = SpatialMath.response(tiltX, sensitivity, angle)
-            val targetY = SpatialMath.response(tiltY, sensitivity, angle)
-            x += (targetX - x) * alpha; y += (targetY - y) * alpha
+            val target = SpatialMath.responseVector(tiltX, tiltY, sensitivity, angle)
+            x += (target.x - x) * alpha; y += (target.y - y) * alpha
         }
-        val cover = SpatialMath.cover(aspect, width.toFloat() / height, (state["crop"] as? Float ?: 0.04f))
+        val baseCover = SpatialMath.cover(aspect, width.toFloat() / height, (state["crop"] as? Float ?: 0.04f))
         val requested = SpatialMath.amplitude(strength, mode)
-        val amplitude = SpatialMath.safeAmplitude(requested, cover, width, height, diagnostics.imageWidth, diagnostics.imageHeight)
-        val mx = x * amplitude
-        val my = y * amplitude * width / height
+        val plan = SpatialBoundaryPlanner.plan(baseCover, boundaryProfile, width, height,
+            diagnostics.imageWidth, diagnostics.imageHeight, requested, x, y)
+        val cover = plan.cover
+        val amplitude = plan.gain
+        val mx = plan.appliedX
+        val my = plan.appliedY * width / height
         val depthSpan = SpatialMath.normalizedDepth(diagnostics.depthMax / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f) -
             SpatialMath.normalizedDepth(diagnostics.depthMin / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
         if (fpsStart == 0L) fpsStart = now
@@ -193,6 +206,11 @@ class SpatialRenderer(
         GL.glUniform1i(uniforms.getValue("uShowFallback"), if (showFallback) 1 else 0)
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
+        if (measureRequested) {
+            measureRequested = false
+            diagnostics = diagnostics.copy(renderedOffset = probe.measure(program, probePoints, cover, width, height, mx*cover[0], my*cover[1]) +
+                "\n捕获视角 %.3f, %.3f；捕获时间 %d ms（调整视角后需重新点击）".format(java.util.Locale.US,x,y,now/1_000_000))
+        }
         diagnostics = diagnostics.copy(
             ready = drawError == GL.GL_NO_ERROR,
             message = if (drawError == GL.GL_NO_ERROR) "空间 GPU 高度场绘制正常；GL=0" else "绘制错误 GL=0x${drawError.toString(16)}",
@@ -202,12 +220,12 @@ class SpatialRenderer(
             estimatedNearFarPixelsY = my * depthSpan * height,
             cameraX = mx * cover[0] * SpatialMath.CAMERA_SHARE, cameraY = my * cover[1] * SpatialMath.CAMERA_SHARE,
             fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f, safePercent = amplitude * 100f, showFallback = showFallback,
-            limitReason = buildString {
-                if (amplitude + 0.00001f < requested) append("裁切余量不足（相机偏移+近景+源像素边距），已限幅；")
-                else append("裁切未限幅；")
-                if (depthSpan < 0.99f) append("深度变化不足，近远差缩小；")
-                append("以上为 GPU 位移/几何估计，不是逐像素实测；交点回退可能局部削弱，请在诊断页查看紫色回退区域")
-            },
+            requestedX = plan.requestedX, requestedY = plan.requestedY,
+            appliedX = plan.appliedX, appliedY = plan.appliedY,
+            limitX = plan.limitX, limitY = plan.limitY, extraZoom = plan.extraZoom,
+            edgeDepths = "左%.3f 右%.3f 上%.3f 下%.3f".format(java.util.Locale.US, plan.edges.left, plan.edges.right, plan.edges.top, plan.edges.bottom),
+            directionDegrees = Math.toDegrees(kotlin.math.atan2(y.toDouble(), x.toDouble())).toFloat(),
+            limitReason = plan.reason + if (depthSpan < 0.99f) "；深度变化不足，近远差缩小" else "",
             strength = strength, sensitivity = sensitivity, angle = angle,
             crop = state["crop"] as? Float ?: 0.04f, forced = forced != null, boosted = diagnosticBoost,
         )
@@ -266,6 +284,8 @@ class SpatialRenderer(
     }
 
     fun releaseImages() {
+        probe.release()
+        probePoints = emptyList()
         GL.glDeleteTextures(2, clockTextures, 0)
         GL.glDeleteTextures(2, textures, 0)
         clockTextures.fill(0)
@@ -274,6 +294,7 @@ class SpatialRenderer(
         maskPath = ""
         minute = -1L
         ready = false
+        boundaryProfile = null
         maskReady = false
         diagnostics = diagnostics.copy(ready = false, message = "纹理已释放，等待重新加载")
     }

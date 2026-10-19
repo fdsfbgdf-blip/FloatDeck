@@ -34,7 +34,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             preview.requestRender()
             val now = android.os.SystemClock.elapsedRealtime()
             if (now - lastInfo >= 1500) { updateInfo(); lastInfo = now }
-            handler.postDelayed(this, 33)
+            handler.postDelayed(this, 16)
         }
     }
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +98,10 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             text = "显示交点回退区域（紫色，仅诊断，不应用壁纸）"
             setOnCheckedChangeListener { _, checked -> renderer.showFallback = checked; preview.requestRender() }
         })
+        controls.addView(Button(this).apply {
+            text = "GPU 实测当前近 / 中 / 远景采样位移"
+            setOnClickListener { renderer.measureRequested = true; preview.requestRender() }
+        })
         controls.addView(info)
         controls.addView(CheckBox(this).apply {
             text = "使用明显检测幅度（仅本页：增强模式 / 强度 100% / 请求 12% / 响应角 12°）"
@@ -129,10 +133,13 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             appendLine("${s.glVersion}；${s.gpu}")
             appendLine("传感器：${sensor.sensorName}；注册=${sensor.registered}；事件=${sensor.eventCount}；年龄=${age(sensor.lastEventNanos)}；精度=${sensor.accuracy}")
             appendLine("原始值：[${sensor.rawValues}]；相对角：${f(input.yawDegrees)}° / ${f(input.pitchDegrees)}° / 侧倾${f(input.bankDegrees)}°；输入 ${f(input.x)}, ${f(input.y)}")
-            appendLine("GPU 相机偏移 ${f(s.cameraX)}, ${f(s.cameraY)} UV；${f(s.fps)} FPS；理论请求 ${f(s.targetPercent)}% / 裁切后上限 ${f(s.safePercent)}%（均按画面宽度）；${s.limitReason}")
+            appendLine("GPU 相机偏移 ${f(s.cameraX)}, ${f(s.cameraY)} UV；${f(s.fps)} FPS；理论请求 ${f(s.targetPercent)}% / 当前方向应用增益 ${f(s.safePercent)}%（均按画面宽度）；${s.limitReason}")
+            appendLine("连续方向 ${f(s.directionDegrees)}°；requestedOffset ${f(s.requestedX)}, ${f(s.requestedY)}；safeLimit X/Y ${f(s.limitX)}, ${f(s.limitY)}（画面宽度单位）")
+            appendLine("appliedOffset ${f(s.appliedX)}, ${f(s.appliedY)}；额外裁切 ${(s.extraZoom-1)*100}%；边界深度 ${s.edgeDepths}")
             appendLine("实际视角 ${f(s.viewX)}, ${f(s.viewY)}；uniform 位移 ${f(s.motionX)}, ${f(s.motionY)}")
             appendLine("强度 ${f(s.strength)}；灵敏度 ${f(s.sensitivity)}；满响应角 ${f(s.angle)}°；模式 ${s.mode} / 速度 ${f(s.speed)}；裁切 ${f(s.crop)}；${if (s.boosted) "本页检测幅度" else "包/用户参数"}")
             appendLine("估计本预览近远像素差：水平 ${f(s.estimatedNearFarPixelsX)} / 垂直 ${f(s.estimatedNearFarPixelsY)}（不是实测像素）")
+            appendLine(s.renderedOffset)
             if (s.depthMax - s.depthMin < 16) appendLine("C 提示：深度变化很小/恒定；预期无法形成明显层间视差。")
             if (s.strength == 0f) appendLine("C 提示：强度为 0，任何视角输入都会静止。")
             appendLine("系统当前组件：$component")

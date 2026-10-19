@@ -16,6 +16,8 @@ import kotlin.math.sqrt
  */
 class SensorHandler(
     private val context: Context,
+    private val callbackHandlerFactory: (() -> android.os.Handler)? = null,
+    private val timestampNow: () -> Long = { android.os.SystemClock.elapsedRealtimeNanos() },
 ) : SensorEventListener {
     companion object {
         /**
@@ -82,8 +84,14 @@ class SensorHandler(
         private set
     @Volatile var lastEventNanos = 0L
         private set
-    @Volatile var rawValues = "无事件"
-        private set
+    @Volatile private var rawSnapshot = floatArrayOf()
+    val rawValues: String get() = if (rawSnapshot.isEmpty()) "等待首个事件" else
+        rawSnapshot.joinToString(", ") { "%.4f".format(java.util.Locale.US,it) }
+    private var registeredAtNanos = 0L
+    private var callbackThread: android.os.HandlerThread? = null
+    private val rotationMatrix = FloatArray(9)
+    private val screenMatrix = FloatArray(9)
+    private val vector = FloatArray(4)
     @Volatile var accuracy = -1
         private set
     val spatialPose = app.floatdeck.spatial.SpatialPose()
@@ -99,11 +107,15 @@ class SensorHandler(
         spatialInput = app.floatdeck.spatial.SpatialPose.Input()
     }
 
-    fun register() {
+    @Synchronized fun register() {
         if (registered) return
         recenterSpatial()
         lastEventNanos = 0L
-        rawValues = "等待首个事件"
+        rawSnapshot = floatArrayOf()
+        registeredAtNanos = timestampNow()
+        val callbackHandler = callbackHandlerFactory?.invoke() ?: android.os.HandlerThread("FloatDeck-pose").let {
+            it.start(); callbackThread = it; android.os.Handler(it.looper)
+        }
         for ((type, label) in listOf(
             Sensor.TYPE_ROTATION_VECTOR to "旋转向量",
             Sensor.TYPE_GAME_ROTATION_VECTOR to "游戏旋转向量",
@@ -112,37 +124,41 @@ class SensorHandler(
             val candidate = sensorManager.getDefaultSensor(type) ?: continue
             // The old implementation treated a rejected listener as registered,
             // silently preventing fallback to a working sensor.
-            if (sensorManager.registerListener(this, candidate, SensorManager.SENSOR_DELAY_GAME)) {
+            if (sensorManager.registerListener(this, candidate, 10_000, callbackHandler)) {
                 sensorName = "$label / ${candidate.name}"
                 registered = true
                 return
             }
         }
+        callbackThread?.quitSafely(); callbackThread = null
         sensorName = "没有可用传感器或监听注册失败"
     }
 
-    fun unregister() {
-        if (registered) sensorManager.unregisterListener(this)
+    @Synchronized fun unregister() {
+        val wasRegistered = registered
         registered = false
+        if (wasRegistered) sensorManager.unregisterListener(this)
+        callbackThread?.quitSafely(); callbackThread = null
     }
 
-    override fun onSensorChanged(event: SensorEvent) {
+    @Synchronized override fun onSensorChanged(event: SensorEvent) {
+        if (!registered || event.timestamp < registeredAtNanos) return
         eventCount++
         lastEventNanos = android.os.SystemClock.elapsedRealtimeNanos()
-        rawValues = event.values.take(4).joinToString(", ") { "%.4f".format(java.util.Locale.US, it) }
+        rawSnapshot = event.values.copyOf(minOf(4,event.values.size)) // immutable diagnostic snapshot; formatted only on demand
         accuracy = event.accuracy
         when (event.sensor.type) {
             // 旋转矢量 / 游戏旋转矢量：旋转矩阵重映射到屏幕坐标系后，直接取世界"上"方向
             // 在屏幕坐标的分量作为倾斜量。平板/手机直立握持时两个输出都接近 0（无偏置），
             // 不像 getOrientation 的欧拉角在直立姿态下会饱和在 ±60°~90°。
             Sensor.TYPE_ROTATION_VECTOR, Sensor.TYPE_GAME_ROTATION_VECTOR -> {
-                val rotationMatrix = FloatArray(9)
                 SensorManager.getRotationMatrixFromVector(
                     rotationMatrix,
-                    safeRotationValues(event.values),
+                    if (event.values.size > 4) {
+                        event.values.copyInto(vector, endIndex = 4); vector
+                    } else event.values,
                 )
                 val axes = remapAxesForRotation(screenRotation)
-                val screenMatrix = FloatArray(9)
                 if (!SensorManager.remapCoordinateSystem(
                         rotationMatrix,
                         axes[0],

@@ -18,9 +18,9 @@ class SpatialSensorRegistrationTest {
         every { context.getSystemService(Context.SENSOR_SERVICE) } returns manager
         every { manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) } returns rotation
         every { manager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) } returns game
-        every { manager.registerListener(any(), rotation, any<Int>()) } returns false
-        every { manager.registerListener(any(), game, any<Int>()) } returns true
-        val handler = SensorHandler(context)
+        every { manager.registerListener(any(), rotation, 10_000, any<android.os.Handler>()) } returns false
+        every { manager.registerListener(any(), game, 10_000, any<android.os.Handler>()) } returns true
+        val handler = SensorHandler(context, { mockk<android.os.Handler>() }, { 0L })
         handler.register()
         assertTrue(handler.registered)
         assertTrue(handler.sensorName.contains("游戏旋转向量"))

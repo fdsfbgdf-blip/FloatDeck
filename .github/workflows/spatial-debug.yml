@@ -26,6 +26,7 @@ jobs:
         run: |
           python3 scripts/build-spatial-samples.py samples/spatial
           python3 scripts/build-spatial-diagnostics.py samples/spatial
+          python3 scripts/build-spatial-v13.py samples/spatial
       - name: Test, validate shaders and build
         run: ./gradlew testDebugUnitTest validateShaders assembleDebug
       # AGP 9.1.1/Kotlin FIR currently crashes in several lint detectors.
@@ -35,7 +36,7 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-V1.2.1-2x
+          name: FloatDeck-Spatial-V1.3
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
@@ -46,6 +47,7 @@ jobs:
             SPATIAL_DIAGNOSTICS.md
             SPATIAL_V1_2.md
             SPATIAL_STRENGTH_2X.md
+            SPATIAL_V1_3.md
 
   android-integration:
     runs-on: ubuntu-latest
@@ -87,7 +89,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FloatDeck-Spatial-V1.2.1-2x-Android-tests
+          name: FloatDeck-Spatial-V1.3-Android-tests
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

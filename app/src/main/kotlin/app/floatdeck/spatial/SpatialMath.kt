@@ -12,6 +12,15 @@ object SpatialMath {
         val curved = m / (m + (1f-m) / sensitivity.coerceIn(0.25f, 3f))
         return kotlin.math.sign(v) * kotlin.math.tanh(curved * 1.2f) / kotlin.math.tanh(1.2f)
     }
+    data class Vector(val x:Float,val y:Float)
+    fun responseVector(x:Float,y:Float,sensitivity:Float,angle:Float): Vector {
+        val length=kotlin.math.hypot(x,y)
+        val dead=0.08f/SpatialPose.NORMALIZATION_DEGREES
+        if(length<=dead) return Vector(0f,0f)
+        val radial=(length-dead)/(1f-dead)
+        val response=response(radial,sensitivity,angle)
+        return Vector(x/length*response,y/length*response)
+    }
     fun amplitude(strength: Float, mode: String): Float = strength.coerceIn(0f, 1f) * when (mode) {
         "stable" -> 0.06f
         "enhanced" -> 0.12f
@@ -21,7 +30,7 @@ object SpatialMath {
         response(tilt, sensitivity, angle) * amplitude(strength, "standard")
 
     fun smoothing(dt: Float, speed: Float): Float =
-        1f - kotlin.math.exp(-dt.coerceIn(0f, 0.1f) / (0.22f - 0.19f * speed.coerceIn(0f, 1f)))
+        1f - kotlin.math.exp(-dt.coerceIn(0f, 0.1f) / (0.09f - 0.08f * speed.coerceIn(0f, 1f)))
 
     const val CAMERA_SHARE = 0.30f
     // All offsets expressed in visible-screen units. Reserve a source texel at each edge.

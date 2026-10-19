@@ -34,12 +34,17 @@ class SpatialPoseTest {
             assertEquals(angle, pose.update(multiply(base, pitch(angle)), 0).pitchDegrees, 0.001f)
         }
     }
-    @Test fun `recenter and screen rotation changes discard stale baseline`() {
+    @Test fun `recenter clears displacement while display basis change retains calibrated attitude`() {
         val pose = SpatialPose(); pose.update(identity, 0)
         assertTrue(pose.update(yaw(15f), 0).x > 0.5f)
         pose.recenter()
         assertEquals(0f, pose.update(yaw(15f), 0).x, 0.001f)
-        assertEquals(0f, pose.update(yaw(-15f), 1).x, 0.001f)
+        // Real ROTATION_90 remap: new column 0=-old column 1; column 1=old column 0.
+        fun remap(m:FloatArray)=FloatArray(9) { i -> when(i%3) { 0 -> -m[i/3*3+1]; 1 -> m[i/3*3]; else -> m[i] } }
+        val before=pose.update(yaw(5f),0)
+        val after=pose.update(remap(yaw(5f)),1)
+        assertEquals(kotlin.math.hypot(before.x,before.y),kotlin.math.hypot(after.x,after.y),0.001f)
+        assertTrue(kotlin.math.abs(after.y)>0.5f) // rotates into screen Y, never discarded to zero
     }
     @Test fun `side edge bank gesture still drives horizontal parallax`() {
         for (angle in listOf(-15f, 15f)) {
