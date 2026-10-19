@@ -13,4 +13,7 @@
     <item name="spatial_diagnostic_horizontal" type="id" />
     <item name="spatial_diagnostic_vertical" type="id" />
     <item name="spatial_diagnostic_restore" type="id" />
+    <item name="spatial_diagnostic_depth_mode" type="id" />
+    <item name="spatial_diagnostic_fallback" type="id" />
+    <item name="spatial_diagnostic_measure_fallback" type="id" />
 </resources>

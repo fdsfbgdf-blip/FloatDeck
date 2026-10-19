@@ -54,7 +54,7 @@ class SpatialGpuDiagnosticTest {
         val constant = import("diagnostic_constant")
         val prefs = context.getSharedPreferences("gpu-diagnostic-${UUID.randomUUID()}", 0)
         withGl {
-            val renderer = SpatialRenderer(context, prefs)
+            val renderer = SpatialRenderer(context, prefs, diagnosticSession = true)
             renderer.onSurfaceCreated(null, null); renderer.onSurfaceChanged(null, 720, 1280)
             try {
                 for (entry in listOf(three, constant)) {
@@ -107,7 +107,7 @@ class SpatialGpuDiagnosticTest {
         prefs.edit().putString("image", files[0].path).putString("depth", files[1].path)
             .putFloat("strength", 1f).putFloat("crop", 0.08f).putString("parallax_mode", "enhanced").commit()
         try { withGl {
-            val renderer = SpatialRenderer(context, prefs)
+            val renderer = SpatialRenderer(context, prefs, diagnosticSession = true)
             renderer.onSurfaceCreated(null, null); renderer.onSurfaceChanged(null, 720, 1280)
             val contourPixels=ByteBuffer.allocateDirect(720 * 1280 * 4)
             fun contour(): IntArray {
@@ -206,7 +206,7 @@ class SpatialGpuDiagnosticTest {
     @Test fun threeSceneClassesPreserveRealDepthMotionAndReadbackProbeDoesNotChangeVisibleFrame() {
         val prefs=context.getSharedPreferences("gpu-v13-${UUID.randomUUID()}",0)
         withGl {
-            val renderer=SpatialRenderer(context,prefs)
+            val renderer=SpatialRenderer(context,prefs, diagnosticSession = true)
             renderer.onSurfaceCreated(null,null); renderer.onSurfaceChanged(null,720,1280)
             val scenePixels=ByteBuffer.allocateDirect(720*1280*4)
             fun read(axis:Int):List<Float> {
@@ -261,7 +261,7 @@ class SpatialGpuDiagnosticTest {
         val prefs = context.getSharedPreferences("gpu-retry-${UUID.randomUUID()}", 0)
         val missing = File(context.cacheDir, "late-depth-${UUID.randomUUID()}.png")
         withGl {
-            val renderer = SpatialRenderer(context, prefs)
+            val renderer = SpatialRenderer(context, prefs, diagnosticSession = true)
             renderer.onSurfaceCreated(null, null); renderer.onSurfaceChanged(null, 720, 1280)
             try {
                 SpatialPackageStore.publish(entry, prefs, false)

@@ -1,7 +1,7 @@
 name: Spatial Debug APK
 on:
   push:
-    branches: [spatial-v1]
+    branches: [spatial-v1, spatial-render-diagnostics]
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,7 +36,7 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-V1.3
+          name: FloatDeck-Spatial-Render-Diagnostics
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
@@ -48,6 +48,7 @@ jobs:
             SPATIAL_V1_2.md
             SPATIAL_STRENGTH_2X.md
             SPATIAL_V1_3.md
+            SPATIAL_APP_DIAGNOSTIC_STEP1.md
 
   android-integration:
     runs-on: ubuntu-latest
@@ -80,16 +81,18 @@ jobs:
             # Compilation can outlast the emulator display timeout. Ordinary input only.
             adb shell input keyevent KEYCODE_WAKEUP
             adb shell input keyevent KEYCODE_MENU
-            ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest,app.floatdeck.spatial.SpatialGpuDiagnosticTest,app.floatdeck.spatial.SpatialDiagnosticLifecycleTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
+            ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=app.floatdeck.spatial.SpatialPlayerIntegrationTest,app.floatdeck.spatial.SpatialGpuDiagnosticTest,app.floatdeck.spatial.SpatialDiagnosticLifecycleTest,app.floatdeck.spatial.SpatialRenderABTest -Pandroid.injected.androidTest.leaveApksInstalledAfterRun=true
             adb exec-out run-as app.floatdeck.dev cat cache/spatial-preview.png > spatial-preview.png
             mkdir -p work/android-smoke
             adb exec-out run-as app.floatdeck.dev cat cache/strength-comparison.csv > work/android-smoke/strength-comparison.csv
             cat work/android-smoke/strength-comparison.csv
+            adb exec-out run-as app.floatdeck.dev cat cache/render-diagnostics.csv > work/android-smoke/render-diagnostics.csv
+            cat work/android-smoke/render-diagnostics.csv
             python3 scripts/check-spatial-android-flow.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FloatDeck-Spatial-V1.3-Android-tests
+          name: FloatDeck-Spatial-Render-Diagnostics-Android-tests
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/

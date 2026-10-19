@@ -79,6 +79,25 @@ class SpatialDiagnosticLifecycleTest {
             waitFor { it.ready && it.forced && it.viewX > 0.7f && it.strength == 1f }
             drag(R.id.spatial_diagnostic_vertical, 0.05f)
             waitFor { it.forced && it.viewY < -0.7f }
+            var fixedX=0f;var fixedY=0f
+            scenario.onActivity { activity ->
+                fixedX=activity.renderStatus.viewX;fixedY=activity.renderStatus.viewY
+                activity.findViewById<android.widget.CheckBox>(R.id.spatial_diagnostic_depth_mode).performClick()
+            }
+            waitFor { it.ready && !it.depthRepairEnabled && it.forced && it.viewX==fixedX && it.viewY==fixedY }
+            scenario.onActivity { activity ->
+                activity.findViewById<Button>(R.id.spatial_diagnostic_measure_fallback).performClick()
+                activity.findViewById<android.widget.CheckBox>(R.id.spatial_diagnostic_fallback).performClick()
+            }
+            waitFor { it.fallbackPixels>=0 && it.fallbackGlError==0 && it.showFallback && !it.depthRepairEnabled }
+            scenario.moveToState(Lifecycle.State.CREATED)
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            waitFor { it.ready && !it.depthRepairEnabled && it.forced && it.viewX==fixedX && it.viewY==fixedY }
+            scenario.onActivity { activity ->
+                activity.findViewById<android.widget.CheckBox>(R.id.spatial_diagnostic_depth_mode).performClick()
+                activity.findViewById<android.widget.CheckBox>(R.id.spatial_diagnostic_fallback).performClick()
+            }
+            waitFor { it.ready && it.depthRepairEnabled && !it.showFallback && it.viewX==fixedX && it.viewY==fixedY }
             SpatialPackageStore.publish(control.copy(strength = 0.42f), prefs, false)
             waitFor { it.ready && it.packageId == control.id && it.depthMin == 128 && it.depthMax == 128 && it.strength == 0.42f && it.angle == 15f }
             scenario.onActivity { activity ->

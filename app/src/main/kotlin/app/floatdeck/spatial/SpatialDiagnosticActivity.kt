@@ -40,7 +40,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sensor = SensorHandler(this)
-        renderer = SpatialRenderer(this, SpatialPackageStore.previewPrefs(this))
+        renderer = SpatialRenderer(this, SpatialPackageStore.previewPrefs(this), diagnosticSession = true)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(16, 16, 16, 16) }
         root.setOnApplyWindowInsetsListener { view, insets ->
             @Suppress("DEPRECATION")
@@ -95,8 +95,23 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             setOnClickListener { manual = false; x = 0f; y = 0f; horizontal.progress = 100; vertical.progress = 100; renderer.forcedView = null; sensor.recenterSpatial(); renderer.recenter() }
         })
         controls.addView(CheckBox(this).apply {
-            text = "显示交点回退区域（紫色，仅诊断，不应用壁纸）"
+            id = R.id.spatial_diagnostic_depth_mode
+            text = "原始深度图 / APP 修整后深度图：勾选为原始（仅本页）"
+            isChecked = false
+            setOnCheckedChangeListener { _, checked ->
+                renderer.useOriginalDepth = checked
+                preview.requestRender()
+            }
+        })
+        controls.addView(CheckBox(this).apply {
+            id = R.id.spatial_diagnostic_fallback
+            text = "显示求交失败区域（紫色，仅诊断，不应用壁纸）"
             setOnCheckedChangeListener { _, checked -> renderer.showFallback = checked; preview.requestRender() }
+        })
+        controls.addView(Button(this).apply {
+            id = R.id.spatial_diagnostic_measure_fallback
+            text = "测量当前画面的 GPU 求交失败比例"
+            setOnClickListener { renderer.measureFallbackRequested = true; preview.requestRender() }
         })
         controls.addView(Button(this).apply {
             text = "GPU 实测当前近 / 中 / 远景采样位移"
@@ -107,7 +122,7 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             text = "使用明显检测幅度（仅本页：增强模式 / 强度 100% / 请求 12% / 响应角 12°）"
             setOnCheckedChangeListener { _, checked -> renderer.diagnosticBoost = checked }
         })
-        controls.addView(TextView(this).apply { text = "先导入 diagnostic_3d：来回拖滑块，上方远景应移动少，下方近景应移动多。再导入恒深度包：只能整体平移，不应有层间差异。\nA 滑块也不动：看 GL/深度/强度，截图反馈。B 滑块正常、转手机不动：看事件计数、事件年龄与姿态。C 两者正常、原包不明显：比较强度与估计像素差。结论须结合屏幕实测，GL=0 不代表真机视觉通过。\n本页不应用壁纸，不保存强制视角；返回主界面后可正常设为动态壁纸。" })
+        controls.addView(TextView(this).apply { text = "先固定一个视角和强度，勾选/取消 A/B 对照，比较头发、手指、衣料、珍珠边缘是否变化；每次切换后等待纹理重新加载。再勾选紫色回退区域，最后点击 GPU 求交失败比例测量。把强度和方向保持不变，分别在中心视角、最大水平、最大垂直、斜向最大位移各测一次。注意：失败比例也可能包含画面边缘源图余量不足，不等于人物轮廓破损比例。\n先导入 diagnostic_3d：来回拖滑块，上方远景应移动少，下方近景应移动多。再导入恒深度包：只能整体平移，不应有层间差异。\nA 滑块也不动：看 GL/深度/强度。B 滑块正常、转手机不动：看事件计数、事件年龄与姿态。C 测试包正常、原图不明显：比较强度与估计像素差。GPU=0 或构建通过都不代表真机视觉已通过。\n本页对照和强制视角不保存到正式壁纸；返回主界面后可正常设为动态壁纸。" })
         worker.execute {
             val path = SpatialPackageStore.previewPrefs(this).getString("original", null)
             val size = runCatching {
@@ -129,6 +144,9 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             appendLine("当前：${SpatialPackageStore.previewPrefs(this@SpatialDiagnosticActivity).getString("package_name", s.name)}；模式：空间 GPU / ${if (manual) "强制视角，完全绕过姿态" else "相对姿态"}")
             appendLine("源原图：$originalSize；实际上传原图：${s.imageWidth}×${s.imageHeight}；深度：${s.depthWidth}×${s.depthHeight}")
             appendLine("白近黑远；最小 ${s.depthMin} / 最大 ${s.depthMax} / 变化范围 ${s.depthMax - s.depthMin} / ${s.depthLevels} 个灰度级")
+            appendLine("当前深度模式：${if (s.depthRepairEnabled) "APP 边缘修整后" else "原始深度图（未修整）"}；原始范围 ${s.originalDepthMin}-${s.originalDepthMax} / ${s.originalDepthLevels} 级；修整后范围 ${s.repairedDepthMin}-${s.repairedDepthMax} / ${s.repairedDepthLevels} 级")
+            appendLine("A/B固定归一化范围 ${s.normalizationMin}-${s.normalizationMax}，固定生产裁切；原始指导入时尺寸/方向统一后、未执行repair的工作图。未改写ZIP。")
+            appendLine("APP 修整改动：${s.depthRepairChangedPixels} / ${(s.depthWidth.toLong() * s.depthHeight).coerceAtMost(Int.MAX_VALUE.toLong())} 像素（${f(s.depthRepairChangedPercent)}%）；平均灰度差 ${f(s.depthRepairMeanAbsDifference)}，最大差 ${s.depthRepairMaxDifference}")
             appendLine("${s.message}；纹理 ${s.imageTexture}/${s.depthTexture}；帧数 ${s.frames}；最近帧 ${age(s.lastFrameNanos)}")
             appendLine("${s.glVersion}；${s.gpu}")
             appendLine("传感器：${sensor.sensorName}；注册=${sensor.registered}；事件=${sensor.eventCount}；年龄=${age(sensor.lastEventNanos)}；精度=${sensor.accuracy}")
@@ -140,6 +158,8 @@ class SpatialDiagnosticActivity : ComponentActivity() {
             appendLine("强度 ${f(s.strength)}；灵敏度 ${f(s.sensitivity)}；满响应角 ${f(s.angle)}°；模式 ${s.mode} / 速度 ${f(s.speed)}；裁切 ${f(s.crop)}；${if (s.boosted) "本页检测幅度" else "包/用户参数"}")
             appendLine("估计本预览近远像素差：水平 ${f(s.estimatedNearFarPixelsX)} / 垂直 ${f(s.estimatedNearFarPixelsY)}（不是实测像素）")
             appendLine(s.renderedOffset)
+            appendLine("求交失败测量：${s.fallbackMeasureMessage}；失败像素 ${if (s.fallbackPixels >= 0) s.fallbackPixels.toString() else "未测/失败"}；比例 ${if (s.fallbackPercent >= 0f) "${f(s.fallbackPercent)}%" else "未测/失败"}；总采样像素 ${s.fallbackSampleWidth.toLong()*s.fallbackSampleHeight}；采样画面 ${s.fallbackSampleWidth}×${s.fallbackSampleHeight}")
+            if (s.fallbackPercent >= 0f) appendLine("测量快照：${s.fallbackSampleDepthMode}；视角 ${f(s.fallbackSampleViewX)}, ${f(s.fallbackSampleViewY)}；GPU 位移 ${f(s.fallbackSampleMotionX)}, ${f(s.fallbackSampleMotionY)}；强度 ${f(s.fallbackSampleStrength*100)}%；强制模式=${s.fallbackSampleForced}；GL错误=${s.fallbackGlError}；测量年龄=${age(s.fallbackCapturedNanos)}（改动视角后需重测）")
             if (s.depthMax - s.depthMin < 16) appendLine("C 提示：深度变化很小/恒定；预期无法形成明显层间视差。")
             if (s.strength == 0f) appendLine("C 提示：强度为 0，任何视角输入都会静止。")
             appendLine("系统当前组件：$component")

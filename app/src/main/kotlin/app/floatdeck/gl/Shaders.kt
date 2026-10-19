@@ -238,6 +238,7 @@ object Shaders {
         uniform vec2 uTexel;
         uniform float uSurfaceTolerance;
         uniform int uShowFallback;
+        uniform int uMeasureFallback;
         uniform int uProbe;
         uniform vec2 uProbeUV[3];
         uniform sampler2D uClock;
@@ -316,6 +317,12 @@ object Shaders {
                 float localError = abs(depthAt(local) - sourceDepth);
                 float farError = depthAt(farSample);
                 uv = validUV(local) && localError <= farError ? local : farSample;
+            }
+            // Diagnostic-only pass: red=failed ray intersection, black=hit.
+            // The renderer reads this mask back only when the user requests a measurement.
+            if (uMeasureFallback == 1) {
+                fragColor = vec4(hit ? 0.0 : 1.0, 0.0, 0.0, 1.0);
+                return;
             }
             vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
             if (uClockEnabled == 1) {

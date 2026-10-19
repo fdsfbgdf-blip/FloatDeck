@@ -7,6 +7,8 @@ import android.opengl.GLUtils
 import app.floatdeck.gl.ShaderProgram
 import app.floatdeck.gl.Shaders
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -14,10 +16,14 @@ import javax.microedition.khronos.opengles.GL10
 class SpatialRenderer(
     private val context: Context,
     private val prefs: android.content.SharedPreferences = SpatialAssets.prefs(context),
+    private val diagnosticSession: Boolean = false,
 ) : GLSurfaceView.Renderer {
     private var probe = SpatialGpuProbe()
     private var probePoints = emptyList<SpatialGpuProbe.Point>()
     @Volatile var measureRequested = false
+    private var fallbackReadback: ByteBuffer? = null
+    private var normalizationMin = 0
+    private var normalizationMax = 255
     private var program = 0
     private val textures = IntArray(2)
     private val clockTextures = IntArray(2)
@@ -44,6 +50,10 @@ class SpatialRenderer(
     @Volatile var forcedView: SpatialPose.Input? = null
     @Volatile var diagnosticBoost = false
     @Volatile var showFallback = false
+    /** Diagnostic-page-only switch; the wallpaper renderer leaves this at false. */
+    @Volatile var useOriginalDepth = false
+    /** Requests one explicit GPU mask readback; never read back every frame. */
+    @Volatile var measureFallbackRequested = false
     @Volatile var diagnostics = SpatialRenderStatus()
         private set
     private var failedSignature = ""
@@ -60,7 +70,7 @@ class SpatialRenderer(
             0
         }
         uniforms.clear()
-        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
+        for (name in listOf("uImage", "uDepth", "uCover", "uMotion", "uCamera", "uDepthRange", "uTexel", "uSurfaceTolerance", "uShowFallback", "uMeasureFallback", "uClock", "uMask", "uClockEnabled")) uniforms[name] = GL.glGetUniformLocation(program, name)
         probe = SpatialGpuProbe() // context-owned IDs cannot survive context recreation
         probePoints = emptyList()
         textures.fill(0)
@@ -86,13 +96,15 @@ class SpatialRenderer(
         GL.glClear(GL.GL_COLOR_BUFFER_BIT)
         val state = prefs.all
         val paths = listOf(state["image"] as? String ?: "", state["depth"] as? String ?: "")
-        val signature = paths.joinToString("|")
+        // Switching original/repaired depth forces a real texture reload for an A/B comparison.
+        val originalDepth = diagnosticSession && useOriginalDepth // snapshot once per frame/load
+        val signature = paths.joinToString("|") + "|depthMode=${if (originalDepth) "original" else "repaired"}"
         val now = android.os.SystemClock.elapsedRealtimeNanos()
         if (program == 0) return
         if (signature != loaded && (signature != failedSignature || now >= retryAt)) {
             failedSignature = signature
             retryAt = now + 1_000_000_000L
-            diagnostics = diagnostics.copy(name = state["package_name"] as? String ?: "高级工具壁纸", packageId = state["package_id"] as? String ?: "", ready = false, message = "正在加载空间纹理")
+            diagnostics = diagnostics.copy(fallbackPixels = -1, fallbackPercent = -1f, fallbackMeasureMessage = "纹理正在重载，旧测量已作废", renderedOffset = "等待重新测量", name = state["package_name"] as? String ?: "高级工具壁纸", packageId = state["package_id"] as? String ?: "", ready = false, message = "正在加载空间纹理")
             ready = false
             boundaryProfile = null
             GL.glDeleteTextures(2, textures, 0)
@@ -109,25 +121,53 @@ class SpatialRenderer(
                                 diagnostics = diagnostics.copy(imageWidth = bitmap.width, imageHeight = bitmap.height)
                             } else {
                                 require(bitmap.width == diagnostics.imageWidth && bitmap.height == diagnostics.imageHeight) { "原图与深度纹理尺寸不一致" }
-                                val pixels = IntArray(bitmap.width * bitmap.height)
-                                bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                                val repaired = SpatialDepthEdges.repair(pixels, bitmap.width, bitmap.height)
-                                bitmap.setPixels(repaired, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                                val row = IntArray(bitmap.width)
-                                val levels = BooleanArray(256)
-                                var min = 255
-                                var max = 0
-                                for (y in 0 until bitmap.height) {
-                                    bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
-                                    for (pixel in row) {
-                                        val depth = (pixel ushr 16) and 255
-                                        min = minOf(min, depth); max = maxOf(max, depth); levels[depth] = true
-                                    }
-                                }
-                                boundaryProfile = SpatialBoundaryProfile.create(repaired, bitmap.width, bitmap.height, min, max)
-                                probePoints = SpatialGpuProbe.points(repaired, bitmap.width, bitmap.height, min, max)
+                                val originalPixels = IntArray(bitmap.width * bitmap.height)
+                                bitmap.getPixels(originalPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                                val repairedPixels = SpatialDepthEdges.repair(originalPixels, bitmap.width, bitmap.height)
+                                val comparison = SpatialDepthComparisonAnalyzer.analyze(originalPixels, repairedPixels)
+                                val selectedPixels = if (originalDepth) originalPixels else repairedPixels
+                                val selectedStats = if (originalDepth) comparison.original else comparison.repaired
+                                bitmap.setPixels(selectedPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                                val min = selectedStats.min
+                                val max = selectedStats.max
+                                // A/B changes the texture ONLY. Keep production normalization,
+                                // boundary plan and crop identical, even if repair changes extrema.
+                                normalizationMin = comparison.repaired.min
+                                normalizationMax = comparison.repaired.max
+                                boundaryProfile = SpatialBoundaryProfile.create(repairedPixels, bitmap.width, bitmap.height, normalizationMin, normalizationMax)
+                                probePoints = SpatialGpuProbe.points(selectedPixels, bitmap.width, bitmap.height, normalizationMin, normalizationMax)
                                 diagnostics = diagnostics.copy(renderedOffset = "尚未点击 GPU 实测")
-                                diagnostics = diagnostics.copy(depthWidth = bitmap.width, depthHeight = bitmap.height, depthMin = min, depthMax = max, depthLevels = levels.count { it })
+                                diagnostics = diagnostics.copy(
+                                    depthWidth = bitmap.width,
+                                    depthHeight = bitmap.height,
+                                    depthMin = min,
+                                    depthMax = max,
+                                    depthLevels = selectedStats.levels,
+                                    depthRepairEnabled = !originalDepth,
+                                    depthRepairChangedPixels = comparison.changedPixels,
+                                    depthRepairChangedPercent = comparison.changedPercent,
+                                    depthRepairMeanAbsDifference = comparison.meanAbsoluteDifference,
+                                    depthRepairMaxDifference = comparison.maxAbsoluteDifference,
+                                    originalDepthMin = comparison.original.min,
+                                    originalDepthMax = comparison.original.max,
+                                    originalDepthLevels = comparison.original.levels,
+                                    repairedDepthMin = comparison.repaired.min,
+                                    repairedDepthMax = comparison.repaired.max,
+                                    repairedDepthLevels = comparison.repaired.levels,
+                                    fallbackGlError = -1,
+                                    fallbackCapturedNanos = 0L,
+                                    fallbackPixels = -1,
+                                    fallbackPercent = -1f,
+                                    fallbackSampleWidth = 0,
+                                    fallbackSampleHeight = 0,
+                                    fallbackMeasureMessage = "尚未测量求交失败比例",
+                                    fallbackSampleViewX = 0f,
+                                    fallbackSampleViewY = 0f,
+                                    fallbackSampleMotionX = 0f,
+                                    fallbackSampleMotionY = 0f,
+                                    fallbackSampleStrength = 0f,
+                                    fallbackSampleDepthMode = "未测",
+                                )
                             }
                             GL.glActiveTexture(GL.GL_TEXTURE0 + index)
                             GL.glBindTexture(GL.GL_TEXTURE_2D, textures[index])
@@ -177,8 +217,8 @@ class SpatialRenderer(
         val amplitude = plan.gain
         val mx = plan.appliedX
         val my = plan.appliedY * width / height
-        val depthSpan = SpatialMath.normalizedDepth(diagnostics.depthMax / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f) -
-            SpatialMath.normalizedDepth(diagnostics.depthMin / 255f, diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
+        val depthSpan = SpatialMath.normalizedDepth(diagnostics.depthMax / 255f, normalizationMin / 255f, normalizationMax / 255f) -
+            SpatialMath.normalizedDepth(diagnostics.depthMin / 255f, normalizationMin / 255f, normalizationMax / 255f)
         if (fpsStart == 0L) fpsStart = now
         fpsFrames++
         if (now - fpsStart >= 500_000_000L) {
@@ -200,10 +240,65 @@ class SpatialRenderer(
         GL.glUniform2f(uniforms.getValue("uCover"), cover[0], cover[1])
         GL.glUniform2f(uniforms.getValue("uMotion"), mx * cover[0], my * cover[1])
         GL.glUniform2f(uniforms.getValue("uCamera"), mx * cover[0] * SpatialMath.CAMERA_SHARE, my * cover[1] * SpatialMath.CAMERA_SHARE)
-        GL.glUniform2f(uniforms.getValue("uDepthRange"), diagnostics.depthMin / 255f, diagnostics.depthMax / 255f)
+        GL.glUniform2f(uniforms.getValue("uDepthRange"), normalizationMin / 255f, normalizationMax / 255f)
         GL.glUniform2f(uniforms.getValue("uTexel"), 1f / diagnostics.depthWidth, 1f / diagnostics.depthHeight)
         GL.glUniform1f(uniforms.getValue("uSurfaceTolerance"), if (mode == "stable") 0.002f else 0.004f)
-        GL.glUniform1i(uniforms.getValue("uShowFallback"), if (showFallback) 1 else 0)
+        GL.glUniform1i(uniforms.getValue("uShowFallback"), if (diagnosticSession && showFallback) 1 else 0)
+        GL.glUniform1i(uniforms.getValue("uMeasureFallback"), 0)
+        if (measureFallbackRequested) {
+            measureFallbackRequested = false
+            var maskGlError = -1
+            val dither = GL.glIsEnabled(GL.GL_DITHER)
+            if (diagnosticSession) try {
+                GL.glDisable(GL.GL_DITHER)
+                // Draw a binary hit/fallback mask into the current back buffer, read it once,
+                // then immediately redraw the normal preview before the frame is presented.
+                GL.glUniform1i(uniforms.getValue("uMeasureFallback"), 1)
+                GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
+                val byteCount = width.toLong() * height.toLong() * 4L
+                check(byteCount in 4L..64L * 1024 * 1024) { "诊断预览尺寸过大，无法读取 GPU 掩码" }
+                val pixels = (fallbackReadback?.takeIf { it.capacity() == byteCount.toInt() }
+                    ?: ByteBuffer.allocateDirect(byteCount.toInt()).order(ByteOrder.nativeOrder()).also { fallbackReadback = it })
+                pixels.clear()
+                GL.glReadPixels(0, 0, width, height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, pixels)
+                maskGlError = GL.glGetError()
+                check(maskGlError == GL.GL_NO_ERROR) { "GPU 掩码读取失败 GL=0x${maskGlError.toString(16)}" }
+                val failed = SpatialFallbackMask.count(pixels, width * height)
+                diagnostics = diagnostics.copy(
+                    fallbackGlError = maskGlError,
+                    fallbackCapturedNanos = now,
+                    fallbackSampleForced = forced != null,
+                    fallbackPixels = failed,
+                    fallbackPercent = failed * 100f / (width * height).coerceAtLeast(1),
+                    fallbackSampleWidth = width,
+                    fallbackSampleHeight = height,
+                    fallbackMeasureMessage = "GPU 实测完成；红色代表本帧进入回退路径（也可能包含画面边缘余量不足）",
+                    fallbackSampleViewX = x,
+                    fallbackSampleViewY = y,
+                    fallbackSampleMotionX = mx * cover[0],
+                    fallbackSampleMotionY = my * cover[1],
+                    fallbackSampleStrength = strength,
+                    fallbackSampleDepthMode = if (originalDepth) "原始深度" else "APP 修整深度",
+                )
+            } catch (error: Exception) {
+                diagnostics = diagnostics.copy(
+                    fallbackGlError = maskGlError,
+                    fallbackPixels = -1,
+                    fallbackPercent = -1f,
+                    fallbackSampleWidth = width,
+                    fallbackSampleHeight = height,
+                    fallbackMeasureMessage = "GPU 回退比例测量失败：${error.message}",
+                )
+                android.util.Log.w("SpatialRenderer", "Fallback-mask readback failed", error)
+            } catch (error: OutOfMemoryError) {
+                fallbackReadback = null
+                diagnostics = diagnostics.copy(fallbackPixels = -1, fallbackPercent = -1f,
+                    fallbackGlError = maskGlError, fallbackMeasureMessage = "GPU 读回缓冲内存不足，未得出比例")
+            } finally {
+                GL.glUniform1i(uniforms.getValue("uMeasureFallback"), 0)
+                if (dither) GL.glEnable(GL.GL_DITHER)
+            }
+        }
         GL.glDrawArrays(GL.GL_TRIANGLES, 0, 3)
         val drawError = GL.glGetError()
         if (measureRequested) {
@@ -219,7 +314,7 @@ class SpatialRenderer(
             estimatedNearFarPixelsX = mx * depthSpan * width,
             estimatedNearFarPixelsY = my * depthSpan * height,
             cameraX = mx * cover[0] * SpatialMath.CAMERA_SHARE, cameraY = my * cover[1] * SpatialMath.CAMERA_SHARE,
-            fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f, safePercent = amplitude * 100f, showFallback = showFallback,
+            fps = fps, mode = mode, speed = speed, targetPercent = requested * 100f, safePercent = amplitude * 100f, showFallback = diagnosticSession && showFallback,
             requestedX = plan.requestedX, requestedY = plan.requestedY,
             appliedX = plan.appliedX, appliedY = plan.appliedY,
             limitX = plan.limitX, limitY = plan.limitY, extraZoom = plan.extraZoom,
@@ -228,6 +323,8 @@ class SpatialRenderer(
             limitReason = plan.reason + if (depthSpan < 0.99f) "；深度变化不足，近远差缩小" else "",
             strength = strength, sensitivity = sensitivity, angle = angle,
             crop = state["crop"] as? Float ?: 0.04f, forced = forced != null, boosted = diagnosticBoost,
+            depthRepairEnabled = !originalDepth,
+            normalizationMin = normalizationMin, normalizationMax = normalizationMax,
         )
         GL.glEnable(GL.GL_BLEND)
     }
@@ -284,6 +381,7 @@ class SpatialRenderer(
     }
 
     fun releaseImages() {
+        fallbackReadback = null
         probe.release()
         probePoints = emptyList()
         GL.glDeleteTextures(2, clockTextures, 0)
