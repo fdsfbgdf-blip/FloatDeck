@@ -34,6 +34,8 @@
 
 成功模型输出还包含 `models.lock.json`、`preflight.json`、`*-execution.json`。未运行 GPU 模型的 schema 单元测试 fixture 不含伪造 GPU 执行记录，仅标记 `UNREVIEWED-DRAFT`。
 
+模型条件遮罩可做 16 像素扩张，以覆盖扩散 latent 网格中的细发丝；它不是输出写回权限。`background_hole.png` 不变，最终只写该 hole，且验证器逐像素检查其外 source 不变。
+
 背景遮挡深度为 `unknown-behind-occluders`；本轮用明确前后层级满足空间层顺序，不声称 SDXL 图像同时提供可信深度。已有原图深度不能用来填补新背景几何。
 
 ## Manifest 核心结构

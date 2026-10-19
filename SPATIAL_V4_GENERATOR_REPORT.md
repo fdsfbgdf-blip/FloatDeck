@@ -39,7 +39,7 @@
 3. `shutil.which` 先判断 nvidia-smi，捕获不存在/失败/超时；它不是 CUDA 成功证据。选定解释器中必须 torch.cuda 可用，并满足至少 14 GiB 总 / 10 GiB 空闲显存和 20 GiB 磁盘余量。Notebook 安装前另检查缓存可写与 25 GiB 空间。
 4. SAM `facebook/sam-vit-base` 建议每类三候选；输出分数仅用于建议，不能当作边界或手指完整性通过。
 5. VitMatte `hustvl/vitmatte-small-composition-1k`：float32、768 tile / 128 overlap；三值 trimap、原生坐标、只合并 Alpha，不改变照片几何。珍珠反光内部和人物确定前景保持不透明；本图白纱区域为“未知”提示而非强制不透明，必须编辑检查。用户已有 trimap 优先；修改后还应检查旧 protect 是否错误强制 Alpha=1。
-6. SDXL `diffusers/stable-diffusion-xl-1.0-inpainting-0.1`：fp16、model CPU offload、attention slicing、VAE tiling；全局长边最多 1024，再原生 1024 tiles / 192 overlap 精修。只写已审核 hole；其外逐像素保留源图。tile 重叠仅融合模型生成的背景提案，不复制/模糊前景来填空。
+6. SDXL `diffusers/stable-diffusion-xl-1.0-inpainting-0.1`：fp16、model CPU offload、attention slicing、VAE tiling；全局长边最多 1024，再原生 1024 tiles / 192 overlap 精修。只写已审核 hole；其外逐像素保留源图。仅模型条件遮罩扩张 16 像素避免细发丝在 latent 网格消失，不扩大最终输出写回区域；独立 CPU 测试保护该不变量。tile 重叠仅融合模型生成的背景提案，不复制/模糊前景来填空。
 7. 分割、matting、inpainting 分属独立 CLI 子进程，阶段结束退出，避免模型共占显存。记录耗时、峰值 allocated/reserved、是否实际执行/成功；失败不伪造成功、不降级为复制背景。
 8. Hugging Face 模型先解析为实际 commit SHA，随后按锁定 revision 加载。缓存、Python/CUDA/依赖记录在 preflight；未运行模型时没有伪造模型 revision 或 GPU 时间。
 

@@ -3,7 +3,7 @@ import gc,json,os,sys,time,shutil,subprocess
 from pathlib import Path
 import numpy as np
 from PIL import Image
-from .core import read_image,load_mask,save_mask,trimap,digest
+from .core import read_image,load_mask,save_mask,trimap,digest,restore_visible
 
 DEFAULT_MODELS={'segment':'facebook/sam-vit-base','matte':'hustvl/vitmatte-small-composition-1k',
                 'inpaint':'diffusers/stable-diffusion-xl-1.0-inpainting-0.1'}
@@ -146,11 +146,18 @@ def background(work,config):
         pipe.enable_model_cpu_offload();pipe.enable_attention_slicing();pipe.enable_vae_tiling()
         w,h=source.size
         scale=min(1,config['global_long_side']/max(w,h));sw=max(64,round(w*scale/8)*8);sh=max(64,round(h*scale/8)*8)
+        from scipy import ndimage as ndi
+        approved=np.array(hole)>0
+        radius=config.get('conditioning_dilation',16)
+        expanded=ndi.binary_dilation(approved,iterations=radius) if radius else approved.copy()
+        # Diffusion uses a latent grid: tiny hair holes can disappear if fed literally.
+        # Expand conditioning ONLY. Published background still changes approved pixels ONLY.
+        conditioning=Image.fromarray((expanded*255).astype('uint8'),'L')
         generator=torch.Generator('cuda').manual_seed(config['seed'])
         kwargs=dict(prompt=config['background_prompt'],negative_prompt=config['negative_prompt'],guidance_scale=6,
                     generator=generator,num_inference_steps=config['global_steps'])
         with torch.inference_mode():
-            global_bg=pipe(image=source.resize((sw,sh),Image.Resampling.LANCZOS),mask_image=hole.resize((sw,sh),Image.Resampling.NEAREST),
+            global_bg=pipe(image=source.resize((sw,sh),Image.Resampling.LANCZOS),mask_image=conditioning.resize((sw,sh),Image.Resampling.NEAREST),
                            strength=1.,width=sw,height=sh,**kwargs).images[0].resize((w,h),Image.Resampling.LANCZOS)
         global_array=np.array(global_bg,dtype=np.float32);src=np.array(source);mask=np.array(hole)>0
         base=np.where(mask[...,None],global_array,src).astype(np.uint8)
@@ -162,7 +169,7 @@ def background(work,config):
             for x in starts(w,tile,overlap):
                 x1=min(w,x+tile);y1=min(h,y+tile);local=mask[y:y1,x:x1]
                 if not local.any():continue
-                im=Image.fromarray(base[y:y1,x:x1]);mh=hole.crop((x,y,x1,y1))
+                im=Image.fromarray(base[y:y1,x:x1]);mh=conditioning.crop((x,y,x1,y1))
                 # Pad instead of rescaling so all tile pixels stay registered.
                 tw=(im.width+7)//8*8;th=(im.height+7)//8*8
                 padded=Image.new('RGB',(tw,th));padded.paste(im);pm=Image.new('L',(tw,th));pm.paste(mh)
@@ -175,10 +182,10 @@ def background(work,config):
                 acc[y:y1,x:x1]+=proposal*win[...,None];weight[y:y1,x:x1]+=win
         generated=acc/np.maximum(weight[...,None],1e-8)
         if np.any(mask&(weight==0)):raise RuntimeError('inpainting tile coverage incomplete')
-        final=src.copy();final[mask]=np.rint(generated[mask]).clip(0,255).astype(np.uint8)
+        final=restore_visible(src,generated,mask)
         Image.fromarray(final,'RGB').save(p/'background.png')
         (p/'background_record.json').write_text(json.dumps({'provider':'sdxl-inpaint-global-and-native-tiles','model':spec,
             'seed':config['seed'],'mask_sha256':digest(p/'background_hole.png'),'background_sha256':digest(p/'background.png'),
-            'only_mask_written':True,'config':config,'executed':True},indent=2))
+            'only_mask_written':True,'conditioning_dilation_pixels':radius,'conditioning_is_not_output_permission':True,'config':config,'executed':True},indent=2))
         del pipe
     return gpu_stage(work,'inpaint',run)

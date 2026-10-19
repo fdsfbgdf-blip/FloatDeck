@@ -107,6 +107,13 @@ class GeneratorTests(unittest.TestCase):
     def test_trimaps_keep_clipped_opaque_border(self):
         a=np.zeros((30,30));a[10:,5:25]=1
         t=trimap(a,2);self.assertEqual(t[-1,15],255);self.assertEqual(t[0,0],0)
+    def test_model_conditioning_cannot_overwrite_visible_pixels(self):
+        src=np.full((20,30,3),33,np.uint8);proposal=np.full_like(src,240)
+        hole=np.zeros((20,30),bool);hole[7:12,13:18]=True
+        out=restore_visible(src,proposal,hole)
+        self.assertTrue(np.array_equal(out[~hole],src[~hole]));self.assertTrue(np.all(out[hole]==240))
+    def test_writeback_registration_mismatch_rejected(self):
+        with self.assertRaisesRegex(ValueError,'registration'):restore_visible(np.zeros((20,30,3)),np.zeros((10,30,3)),np.zeros((20,30),bool))
     def test_synthetic_demo_export(self):
         # Optional explicitly named schema fixture for CI. Never a user-art model result.
         import os,shutil

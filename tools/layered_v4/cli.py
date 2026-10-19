@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from .core import *
 
-DEFAULT={'translucent_regions':{'person':[[.56,.43,1.,.58],[.22,.49,.65,.65]],'pearl':[]},'boxes':{'person':[.03,.27,1.,.77],'pearl':[0.,.63,.96,1.]},'person_trimap_radius':10,'pearl_trimap_radius':4,
+DEFAULT={'conditioning_dilation':16,'translucent_regions':{'person':[[.56,.43,1.,.58],[.22,.49,.65,.65]],'pearl':[]},'boxes':{'person':[.03,.27,1.,.77],'pearl':[0.,.63,.96,1.]},'person_trimap_radius':10,'pearl_trimap_radius':4,
  'matte_tile':768,'matte_overlap':128,'global_long_side':1024,'global_steps':30,'inpaint_tile':1024,'inpaint_overlap':192,
  'refine_steps':24,'refine_strength':.70,'seed':12345,
  'background_prompt':'Underwater fantasy cavern, organic flowing rock formations, warm golden caustic light and turquoise water, continuous natural environmental background, detailed stone and water only, no objects in foreground',
@@ -17,6 +17,7 @@ def check_config(c):
         tile=c[tile_key];overlap=c[overlap_key]
         if not isinstance(tile,int) or not 256<=tile<=1024 or not isinstance(overlap,int) or not 0<overlap<tile:raise ValueError('T4 tile bounds/overlap invalid')
     if not 512<=c['global_long_side']<=1024:raise ValueError('T4 global size must be 512..1024; output remains native size')
+    if not isinstance(c.get('conditioning_dilation',16),int) or not 0<=c.get('conditioning_dilation',16)<=32:raise ValueError('conditioning dilation must be 0..32 pixels')
     if not 0<c['refine_strength']<=1:raise ValueError('invalid refine strength')
     for boxes in [list(c['boxes'].values()),list(c['rois'].values()),sum(c.get('translucent_regions',{}).values(),[])]:
         for b in boxes:

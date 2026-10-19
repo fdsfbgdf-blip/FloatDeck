@@ -70,6 +70,12 @@ def trimap(mask,radius=8):
 def save_mask(path,a):
     Image.fromarray(np.rint(np.clip(a,0,1)*255).astype('uint8'),'L').save(path)
 
+def restore_visible(source,proposal,approved_hole):
+    if source.shape!=proposal.shape or approved_hole.shape!=source.shape[:2]:raise ValueError('background writeback registration mismatch')
+    out=source.copy()
+    out[approved_hole]=np.rint(proposal[approved_hole]).clip(0,255).astype('uint8')
+    return out
+
 def over(bg,rgba):
     a=rgba[...,3:4]/255.
     return rgba[...,:3]*a+bg*(1-a)
