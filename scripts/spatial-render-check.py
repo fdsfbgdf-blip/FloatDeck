@@ -47,6 +47,9 @@ for index in range(2):
 gl('glUniform1i',None,[I,I],loc('uImage'),0);gl('glUniform1i',None,[I,I],loc('uDepth'),1)
 gl('glUniform1i',None,[I,I],loc('uClock'),2);gl('glUniform1i',None,[I,I],loc('uMask'),3)
 gl('glUniform2f',None,[I,F,F],loc('uCover'),1,1)
+gl('glUniform2f',None,[I,F,F],loc('uDepthRange'),0,1)
+gl('glUniform2f',None,[I,F,F],loc('uTexel'),1/256,1/256)
+gl('glUniform1f',None,[I,F],loc('uSurfaceTolerance'),.003)
 gl('glViewport',None,[I,I,I,I],0,0,256,256)
 
 def render(x,y):

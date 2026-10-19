@@ -269,10 +269,22 @@ object Shaders {
             float d3 = texelFetch(uDepth, b, 0).r;
             float range = max(max(d0,d1),max(d2,d3))-min(min(d0,d1),min(d2,d3));
             if (range > max(0.15, uDepthRange.y-uDepthRange.x) * 0.12) {
-                // Do not bilinearly leak foreground color onto a far-depth sample.
-                // This is source-pixel selection only, not blur or content synthesis.
-                ivec2 exact = clamp(ivec2(uv * vec2(size)), ivec2(0), size-1);
-                return texelFetch(uImage, exact, 0).rgb;
+                // Depth-aware bilinear reconstruction. Depth and photo may have
+                // different resolutions: sample photo in normalized coordinates.
+                float target = depthAt(uv);
+                vec2 f = fract(p);
+                vec3 sum = vec3(0.0);
+                float weight = 0.0;
+                for (int y = 0; y < 2; ++y) for (int x = 0; x < 2; ++x) {
+                    ivec2 cell = ivec2(x == 0 ? a.x : b.x, y == 0 ? a.y : b.y);
+                    vec2 q = (vec2(cell) + 0.5) / vec2(size);
+                    float w = (x == 0 ? 1.0-f.x : f.x) * (y == 0 ? 1.0-f.y : f.y);
+                    if (abs(depthAt(q)-target) <= 0.03) {
+                        sum += texture(uImage, q).rgb * w;
+                        weight += w;
+                    }
+                }
+                return sum / max(weight, 0.000001);
             }
             return texture(uImage, uv).rgb;
         }
@@ -281,43 +293,61 @@ object Shaders {
             vec2 screenUV = uProbe == 1 ? uProbeUV[int(gl_FragCoord.y) % 3] : vUV;
             vec2 base = (screenUV - 0.5) * uCover + 0.5 - uCamera;
             vec2 uv = base;
-            float previous = 1.0;
             bool hit = false;
-            for (int i = 0; i <= 32; ++i) {
-                float z = 1.0 - float(i) / 32.0;
-                vec2 candidate = base - uMotion * z;
-                // Outside-source near rays are NOT surfaces. Clamping them would
-                // fabricate a foreground wall and swallow real background motion.
-                if (!validUV(candidate)) { previous = z; continue; }
-                float depth = depthAt(candidate);
-                if (depth >= z) {
-                    float lo = z;
-                    float hi = previous;
-                    for (int j = 0; j < 5; ++j) {
-                        float mid = (lo + hi) * 0.5;
-                        if (validUV(base - uMotion * mid) && depthAt(base - uMotion * mid) >= mid) lo = mid;
-                        else hi = mid;
-                    }
-                    float surface = (lo + hi) * 0.5;
-                    vec2 intersection = base - uMotion * surface;
-                    // A depth discontinuity is not a real connecting surface: do not
-                    // stretch a face/pearl/background texel across the vertical wall.
-                    if (validUV(intersection) && abs(depthAt(intersection) - surface) <= uSurfaceTolerance) {
-                        uv = intersection; hit = true; break;
+            // Traverse the piecewise-constant depth field in source texel order.
+            // A fixed z march skips thin foreground cells at strong motion.
+            vec2 size = vec2(textureSize(uDepth, 0));
+            float enter = 0.0;
+            float leave = 1.0;
+            for (int axis = 0; axis < 2; ++axis) {
+                if (abs(uMotion[axis]) < 0.0000001) {
+                    if (base[axis] < uTexel[axis] || base[axis] > 1.0-uTexel[axis]) leave = -1.0;
+                } else {
+                    float t0 = (base[axis] - (1.0-uTexel[axis])) / uMotion[axis];
+                    float t1 = (base[axis] - uTexel[axis]) / uMotion[axis];
+                    enter = max(enter, min(t0,t1));
+                    leave = min(leave, max(t0,t1));
+                }
+            }
+            float hi = leave;
+            float bestError = 2.0;
+            vec2 direction = sign(uMotion);
+            for (int i = 0; i < 512; ++i) {
+                if (hi < enter) break;
+                vec2 start = base - uMotion * hi;
+                // Choose the cell entered as z decreases, including exact grid ties.
+                ivec2 cell = clamp(ivec2(floor(start * size + sign(uMotion)*0.0001)),
+                                   ivec2(0), ivec2(size)-1);
+                vec2 center = (vec2(cell)+0.5)/size;
+                float lo = enter;
+                for (int axis = 0; axis < 2; ++axis) {
+                    if (abs(uMotion[axis]) > 0.0000001) {
+                        float boundary = (float(cell[axis]) + (direction[axis] > 0.0 ? 1.0 : 0.0))/size[axis];
+                        float crossing = (base[axis]-boundary)/uMotion[axis];
+                        lo = max(lo, min(hi, crossing));
                     }
                 }
-                previous = z;
+                float depth = depthAt(center);
+                vec2 intersection = base-uMotion*depth;
+                // Exact cell membership rejects vertical depth walls and preserves
+                // first-hit foreground visibility. Tolerance is not enlarged.
+                if (depth >= lo && depth <= hi && validUV(intersection) &&
+                    all(equal(ivec2(floor(intersection*size)), cell)) &&
+                    abs(depthAt(intersection)-depth) <= uSurfaceTolerance) {
+                    uv = intersection; hit = true; break;
+                }
+                float z = clamp(depth, lo, hi);
+                float error = abs(depth-z);
+                if (error < bestError) {
+                    bestError = error;
+                    // Stay inside the actual visited source cell, on the same ray.
+                    uv = base-uMotion*mix(lo,hi,0.5);
+                }
+                if (lo <= enter) break;
+                hi = lo;
             }
-            // Bounded fallback: choose the least inconsistent of actual source samples.
-            // No invented content. Unseen backgrounds still cannot be recovered.
-            if (!hit) {
-                float sourceDepth = depthAt(base);
-                vec2 local = base - uMotion * sourceDepth;
-                vec2 farSample = base;
-                float localError = abs(depthAt(local) - sourceDepth);
-                float farError = depthAt(farSample);
-                uv = validUV(local) && localError <= farError ? local : farSample;
-            }
+            // Exhausted traversal / disocclusion remain failures even when a
+            // bounded best source sample is displayed. No synthetic background.
             // Diagnostic-only pass: red=failed ray intersection, black=hit.
             // The renderer reads this mask back only when the user requests a measurement.
             if (uMeasureFallback == 1) {

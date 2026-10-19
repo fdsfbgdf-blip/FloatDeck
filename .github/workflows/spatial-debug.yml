@@ -1,7 +1,7 @@
 name: Spatial Debug APK
 on:
   push:
-    branches: [spatial-v1, spatial-render-diagnostics]
+    branches: [spatial-v1, spatial-render-diagnostics, spatial-render-fix-v2]
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,7 +21,9 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - uses: gradle/actions/setup-gradle@v4
       - name: Install shader validator
-        run: sudo apt-get update && sudo apt-get install -y glslang-tools
+        run: sudo apt-get update && sudo apt-get install -y glslang-tools libegl1 libgl1 libgl1-mesa-dri
+      - name: Exact ray GPU regression
+        run: python3 scripts/spatial-ray-regression.py
       - name: Build original sample packages
         run: |
           python3 scripts/build-spatial-samples.py samples/spatial
@@ -36,7 +38,7 @@ jobs:
         run: ./gradlew lintDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: FloatDeck-Spatial-Render-Diagnostics
+          name: FloatDeck-Spatial-Render-Fix-V2
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/testDebugUnitTest/
@@ -49,6 +51,7 @@ jobs:
             SPATIAL_STRENGTH_2X.md
             SPATIAL_V1_3.md
             SPATIAL_APP_DIAGNOSTIC_STEP1.md
+            SPATIAL_RENDER_FIX_V2.md
 
   android-integration:
     runs-on: ubuntu-latest
@@ -92,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: FloatDeck-Spatial-Render-Diagnostics-Android-tests
+          name: FloatDeck-Spatial-Render-Fix-V2-Android-tests
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
