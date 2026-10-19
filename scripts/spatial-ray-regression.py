@@ -47,3 +47,22 @@ for fixture in ['thin', 'steps', 'ramp']:
                     assert all(abs(actual_color[i]-expected[i])<=2 for i in range(2)), (fixture,expected,list(actual_color))
                     color_checks+=1
 print(json.dumps({'exact_ray_oracle_samples':checks,'thin_foreground_steps_ramp':'passed','motion_unchanged':True,'first_hit_and_mismatched_resolution_color_checks':color_checks}))
+# Normal-pass fallback must not extrude a foreground silhouette into disocclusion.
+for index in range(2):
+    raw=bytearray()
+    for y in range(256):
+        for x in range(256):
+            near=(x-128)**2+(y-128)**2<40**2
+            raw.extend(((255,0,0,255) if near else (0,255,0,255)) if index==0 else
+                       ((255,255,255,255) if near else (0,0,0,255)))
+    buf=(C.c_ubyte*len(raw)).from_buffer(raw)
+    gl('glActiveTexture',None,[U],0x84C0+index)
+    gl('glBindTexture',None,[U,U],0x0DE1,tex[index])
+    gl('glTexImage2D',None,[U,I,I,I,I,I,U,U,P],0x0DE1,0,0x1908,256,256,0,0x1908,0x1401,C.cast(buf,P))
+def area(pixels):
+    return sum(pixels[i]>180 and pixels[i+1]<80 for i in range(0,len(pixels),4))
+base_area=area(render(0,0))
+for motion in [(.12,0),(-.12,0),(0,.12),(0,-.12),(.096,.0612)]:
+    actual_area=area(render(*motion))
+    assert abs(actual_area-base_area)<base_area*.02, (motion,base_area,actual_area)
+print(json.dumps({'fallback_silhouette_area_checks':5,'result':'passed, under 2 percent change without reducing motion'}))

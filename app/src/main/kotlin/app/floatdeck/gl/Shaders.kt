@@ -311,6 +311,7 @@ object Shaders {
             }
             float hi = leave;
             float bestError = 2.0;
+            float bestDepth = 2.0;
             vec2 direction = sign(uMotion);
             for (int i = 0; i < 512; ++i) {
                 if (hi < enter) break;
@@ -338,7 +339,10 @@ object Shaders {
                 }
                 float z = clamp(depth, lo, hi);
                 float error = abs(depth-z);
-                if (error < bestError) {
+                // A disoccluded pixel must not extend the foreground silhouette.
+                // Prefer an observed farther layer, then its closest ray interval.
+                if (depth < bestDepth || (depth == bestDepth && error < bestError)) {
+                    bestDepth = depth;
                     bestError = error;
                     // Stay inside the actual visited source cell, on the same ray.
                     uv = base-uMotion*mix(lo,hi,0.5);
