@@ -213,4 +213,59 @@ class SpatialRenderABTest {
         } finally { renderer.release() }
     } }
 
+    @Test fun highResolutionNeutralNormalColorEqualsDirectPhotoAndHasNoInternalFailure()=withGl {
+        val sw=1146;val sh=2048
+        val prefs=context.getSharedPreferences("color-${UUID.randomUUID()}",0)
+        val files=listOf("color","depth").map { File(context.cacheDir,"v3-${UUID.randomUUID()}-$it.png") }
+        val pixels=IntArray(sw*sh)
+        for(index in files.indices) {
+            for(y in 0 until sh) for(x in 0 until sw) {
+                pixels[y*sw+x]=if(index==0) Color.rgb((x*3+y*5) and 255,((x/7)*31+(y/11)*17) and 255,((x/3+y/5)*23) and 255)
+                    else { val z=if((x/7+y/9)%2==0) 25 else 230;Color.rgb(z,z,z) }
+            }
+            val b=Bitmap.createBitmap(pixels,sw,sh,Bitmap.Config.ARGB_8888)
+            try { files[index].outputStream().use { b.compress(Bitmap.CompressFormat.PNG,100,it) } } finally { b.recycle() }
+        }
+        prefs.edit().putString("image",files[0].path).putString("depth",files[1].path).putFloat("strength",1f)
+            .putString("parallax_mode","enhanced").putFloat("crop",0.04f).commit()
+        val renderer=SpatialRenderer(context,prefs,diagnosticSession=true)
+        var reference=0
+        try {
+            renderer.onSurfaceCreated(null,null);renderer.onSurfaceChanged(null,w,h)
+            renderer.useOriginalDepth=true;renderer.forcedView=SpatialPose.Input()
+            GL.glDisable(GL.GL_DITHER);renderer.onDrawFrame(null)
+            assertTrue(renderer.diagnostics.message,renderer.diagnostics.ready)
+            val actual=frame()
+            reference=app.floatdeck.gl.ShaderProgram.compile(app.floatdeck.gl.Shaders.spatialVertex,
+                """#version 300 es
+                precision highp float;
+                uniform highp sampler2D uImage;
+                uniform vec2 uCover;
+                in vec2 vUV;
+                out vec4 fragColor;
+                void main() { fragColor=vec4(texture(uImage,(vUV-0.5)*uCover+0.5).rgb,1.0); }
+                """.trimIndent())
+            GL.glUseProgram(reference);GL.glDisable(GL.GL_BLEND)
+            GL.glUniform1i(GL.glGetUniformLocation(reference,"uImage"),0)
+            val cover=SpatialMath.cover(sw.toFloat()/sh,w.toFloat()/h,0.04f)
+            GL.glUniform2f(GL.glGetUniformLocation(reference,"uCover"),cover[0],cover[1])
+            GL.glDrawArrays(GL.GL_TRIANGLES,0,3);val expected=frame()
+            var maxError=0
+            for(i in actual.indices) maxError=maxOf(maxError,kotlin.math.abs((actual[i].toInt() and 255)-(expected[i].toInt() and 255)))
+            assertTrue("1146x2048 normal-color identity error=$maxError",maxError<=1)
+            renderer.measureFallbackRequested=true;renderer.onDrawFrame(null)
+            assertEquals("Neutral high-resolution input must not generate internal holes",0,renderer.diagnostics.fallbackPixels)
+            fun save(name:String,bytes:ByteArray) {
+                val argb=IntArray(w*h)
+                for(y in 0 until h) for(x in 0 until w) {
+                    val n=(y*w+x)*4
+                    argb[(h-1-y)*w+x]=Color.rgb(bytes[n].toInt() and 255,bytes[n+1].toInt() and 255,bytes[n+2].toInt() and 255)
+                }
+                val b=Bitmap.createBitmap(argb,w,h,Bitmap.Config.ARGB_8888)
+                try { File(context.cacheDir,name).outputStream().use { b.compress(Bitmap.CompressFormat.PNG,100,it) } } finally { b.recycle() }
+            }
+            save("v3-neutral-actual.png",actual);save("v3-neutral-reference.png",expected)
+        } finally { if(reference!=0) GL.glDeleteProgram(reference);renderer.release();files.forEach { it.delete() };prefs.edit().clear().commit() }
+    }
+
 }

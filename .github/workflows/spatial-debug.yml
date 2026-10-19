@@ -98,6 +98,8 @@ jobs:
             adb exec-out run-as app.floatdeck.dev cat cache/render-diagnostics.csv > work/android-smoke/render-diagnostics.csv
             cat work/android-smoke/render-diagnostics.csv
             adb exec-out run-as app.floatdeck.dev cat cache/v3-comparison.zip > work/android-smoke/v3-comparison.zip
+            adb exec-out run-as app.floatdeck.dev cat cache/v3-neutral-actual.png > work/android-smoke/v3-neutral-actual.png
+            adb exec-out run-as app.floatdeck.dev cat cache/v3-neutral-reference.png > work/android-smoke/v3-neutral-reference.png
             python3 scripts/check-spatial-android-flow.py
       - uses: actions/upload-artifact@v4
         if: always()
