@@ -363,8 +363,9 @@ object Shaders {
                 fragColor = vec4(hit ? 0.0 : 1.0, 0.0, 0.0, 1.0);
                 return;
             }
-            vec3 color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
-            if(!hit) {
+            vec3 color;
+            if(hit) color = imageAt(clamp(uv, uTexel, 1.0-uTexel));
+            else {
                 float tile=mod(floor(gl_FragCoord.x/8.0)+floor(gl_FragCoord.y/8.0),2.0);
                 color=mix(vec3(0.12),vec3(0.20),tile); // explicit unknown background
             }

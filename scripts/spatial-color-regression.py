@@ -132,6 +132,8 @@ if args.package:
         actual=Image.open(io.BytesIO(zf.read(image_path))).convert('RGBA');actual.thumbnail((2048,2048))
         actual_depth=Image.open(io.BytesIO(zf.read(depth_path))).convert('RGBA').resize(actual.size,Image.Resampling.NEAREST)
         upload(0,np.array(actual));upload(1,np.array(actual_depth))
+        levels=np.array(actual_depth)[...,0]
+        gl('glUniform2f',None,[I,F,F],loc('uDepthRange'),int(levels.min())/255,int(levels.max())/255)
         Image.fromarray(draw(.096,.0612)).save(output/f'{args.algorithm}-actual-package-normal.png')
         report['actual_package']='captured, visual acceptance requires real-phone comparison; manifest not applied as a preset'
 (output/f'{args.algorithm}.json').write_text(json.dumps(report,indent=2))

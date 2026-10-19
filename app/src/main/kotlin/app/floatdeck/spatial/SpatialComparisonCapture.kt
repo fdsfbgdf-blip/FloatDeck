@@ -76,7 +76,7 @@ internal object SpatialComparisonCapture {
                             val value=IntArray(1); val disjoint=IntArray(1)
                             GL.glGetQueryObjectuiv(query[0],GL.GL_QUERY_RESULT,value,0)
                             GL.glGetIntegerv(0x8FBB,disjoint,0) // GL_GPU_DISJOINT_EXT
-                            if(disjoint[0]==0) gpu.add((value[0].toLong() and 0xffffffffL)/1e6)
+                            if(disjoint[0]==0 && sync.last()<4000.0) gpu.add((value[0].toLong() and 0xffffffffL)/1e6)
                         }
                         check(GL.glGetError()==GL.GL_NO_ERROR) { "性能计时 GL 错误，不能报告有效结果" }
                     }
@@ -101,8 +101,8 @@ internal object SpatialComparisonCapture {
             GL.glUseProgram(restore)
             GL.glUniform1i(GL.glGetUniformLocation(restore,"uMeasureFallback"),0)
             GL.glUniform1i(GL.glGetUniformLocation(restore,"uShowFallback"),ints.getValue("uShowFallback"))
-            GL.glDrawArrays(GL.GL_TRIANGLES,0,3)
             if(dither) GL.glEnable(GL.GL_DITHER)
+            GL.glDrawArrays(GL.GL_TRIANGLES,0,3)
         }
     }
 }
