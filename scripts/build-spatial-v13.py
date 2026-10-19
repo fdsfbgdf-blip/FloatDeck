@@ -32,7 +32,10 @@ for name, title, near_edge, textured in [
             if near_edge and x<110 and 430<y<760: z=240
             # Coordinate ramp + high-contrast fiducials, including the true source border.
             color=(round(x*255/(w-1)),round(y*255/(h-1)),220 if z==240 else 100 if z==128 else 35)
-            if textured and (x%48<2 or y%48<2): color=(245,245,245)
+            # Calibrated coordinate fiducials must not mix with the white grid:
+            # RGB is a source-coordinate encoding only inside these known patches.
+            fiducial=any(abs(x-cx)<90 and abs(y-cy)<90 for cx,cy in [(240,260),(460,630),(240,1000)])
+            if textured and not fiducial and (x%48<2 or y%48<2): color=(245,245,245)
             raw.extend(color); zraw.extend((z,z,z))
     manifest={'format':'floatdeck-spatial','version':1,'name':title,
         'assets':{'image':'wallpaper.png','depth':'depth.png'},'depthDirection':'white-near',
