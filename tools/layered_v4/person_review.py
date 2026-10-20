@@ -111,11 +111,14 @@ def execute_person(work,project,archive):
 def export_person(work,session):
     p=Path(work);out=session.base/ZIP_NAME
     files=['source.png','source_depth.png','pearl_candidate_2.png','pearl_mask.png','fixed-pearl.json','previous_person_0.png',
-           'models.lock.json','config.json','person-rejection.json','rejected_person_5.png','person_proposal.json','person-checks.json','segment-execution.json','preflight.json','人物复审说明.md']
+           'models.lock.json','config.json','person-rejection.json','rejected_person_5.png','person_proposal.json','person-checks.json','segment-execution.json','preflight.json','assets-validated.json','人物复审说明.md']
     files+=[f'person_candidate_{i}.png' for i in range(6)]
     files+=['segmentation-previews/'+f.name for f in sorted((p/'segmentation-previews').glob('person_review_*.jpg'))] if (p/'segmentation-previews').exists() else []
     files+=['person_parts/'+f.name for f in sorted((p/'person_parts').glob('*.png'))] if (p/'person_parts').exists() else []
     with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
+        status='候选生成完整，尚未人工通过' if session.report.get('candidate_generation_complete') else '未完成分割：本包是失败诊断，不能当作新候选结果'
+        note=status+'\n阶段：'+session.report.get('stage','unknown')+'\nSAM真实启动：'+str(session.report.get('models_started',False))+'\n'+session.report.get('message','')+'\n珍珠2固定；人物5保持Reject；禁止Alpha/背景/最终打包。'
+        z.writestr('00_请先阅读_运行结果.txt',redact(note,session.env))
         z.writestr('person-session-report.json',redact(json.dumps(session.report,ensure_ascii=False,indent=2),session.env))
         for name in files:
             f=p/name

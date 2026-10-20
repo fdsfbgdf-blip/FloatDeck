@@ -17,9 +17,12 @@ first=source[0]
 for token in ['一键环境检查与诊断','diagnostics.prepare(session)',"files.download(str(DIAGNOSTIC_ZIP))",'ALLOW_ASSET_STAGES=False','ENV_READY=False']:
     assert token in first,token
 person=source[1]
-for token in ['人物覆盖复审','person_review.run_person_export(','CONTINUE_AFTER_SEGMENTATION=False',"files.download(str(PERSON_ZIP))"]:assert token in person,token
+for token in ['人物覆盖复审','coverage_entry.run_coverage(','CONTINUE_AFTER_SEGMENTATION=False',"files.download(str(PERSON_ZIP))"]:assert token in person,token
 assert 'run_approved_stage(' not in joined
-assert "prepare(session)" not in person and "run_export(" not in person
+assert 'require_environment(' not in person
+assert person.count('files.upload()')==1
+assert '00_请先阅读_运行结果.txt' in person and 'candidate_generation_complete' in person
+assert 'importlib.reload(diagnostics)' in person and 'upload_once=upload_review_once' in person
 sam=source[2]
 for token in ['一键 SAM 分割与预览','sam_export.require_environment(project,python)','sam_export.run_export(',"files.download(str(SAM_ZIP))"]:assert token in sam,token
 assert 'diagnostics.prepare(' not in sam and "'pip'" not in sam

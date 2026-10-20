@@ -6,7 +6,9 @@ from .diagnostics import DiagnosticSession,redact
 NAMES={'person':'人物','pearl':'前景珍珠'}
 
 def require_environment(project,python):
-    record=json.loads((Path(project)/'preflight.json').read_text())
+    path=Path(project)/'preflight.json'
+    try:record=json.loads(path.read_text())
+    except (OSError,ValueError) as exc:raise RuntimeError('当前环境检查记录不存在或损坏，需要由独立入口自动重新验证；不能使用旧报告') from exc
     if not record.get('passed') or not record.get('gpu_probe_passed') or record.get('basic_only'):
         raise RuntimeError('上一阶段环境检查没有通过，请先点击一键环境检查单元')
     if os.path.abspath(record.get('python',''))!=os.path.abspath(str(python)):

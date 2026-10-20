@@ -56,7 +56,7 @@ def seal_masks(p):
     return review_fingerprint(p)
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['init','preflight','lock-models','segment','person-review','check-segmentation','approve-segmentation','matte','prepare-masks','approve-masks','background','build','approve-output','pack'])
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['init','preflight','lock-models','segment','person-review','restore-review','check-segmentation','approve-segmentation','matte','prepare-masks','approve-masks','background','build','approve-output','pack'])
     parser.add_argument('--project');parser.add_argument('--work',required=True);parser.add_argument('--input');parser.add_argument('--output');parser.add_argument('--basic',action='store_true')
     parser.add_argument('--allow-known-person-occlusion',action='store_true');parser.add_argument('--reviewed',action='store_true');parser.add_argument('--draft',action='store_true');args=parser.parse_args()
     if args.command in ['matte','prepare-masks','approve-masks','background','build','approve-output','pack','approve-segmentation']:
@@ -70,6 +70,10 @@ def main():
         if not args.input:parser.error('--input required')
         if (p/'input.json').exists():raise ValueError('Use a fresh work directory; do not overwrite an existing reviewed project')
         result=import_v1(args.input,p);config_path.write_text(json.dumps(config,ensure_ascii=False,indent=2))
+    elif args.command=='restore-review':
+        if not args.input or not args.project:parser.error('--input review ZIP and --project required')
+        from .coverage_entry import restore_assets
+        result=restore_assets(args.input,p,Path(args.project))
     elif args.command=='person-review':
         if not args.input or not args.project:parser.error('--input review ZIP and --project required')
         from .person_review import execute_person

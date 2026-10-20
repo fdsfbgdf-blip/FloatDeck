@@ -79,10 +79,12 @@ def install_plan(expected,installed):
     other=[f'{n}=={v}' for n,v in expected.items() if n not in ('torch','torchvision') and installed.get(n)!=v]
     return gpu,other
 
-def prepare(session):
+def prepare(session,task_label=None):
     """Always package a report. All installs target the dedicated Python, never the kernel."""
     s=session;report=s.report;py=s.base/'python312/bin/python';cache=s.base/'cache';work=s.base/'project-001'
     report['target_python']=str(py)
+    report.update(passed=False,gpu_verified=False)
+    report.pop('preflight',None) # a retry must not reuse a previous invocation's result
     try:
         report['stage']='cache';cache.mkdir(parents=True,exist_ok=True)
         s.env.update(HF_HOME=str(cache),HF_HUB_DISABLE_TELEMETRY='1',TOKENIZERS_PARALLELISM='false',PIP_DISABLE_PIP_VERSION_CHECK='1')
@@ -125,7 +127,7 @@ def prepare(session):
         if p.returncode:raise subprocess.CalledProcessError(p.returncode,p.args,p.stdout,p.stderr)
         pf=report.get('preflight',{})
         if not pf.get('passed') or not pf.get('gpu_probe_passed') or pf.get('basic_only'):raise RuntimeError('Full GPU preflight success record missing')
-        report.update(passed=True,gpu_verified=True,stage='complete',message='环境检查通过：Python 3.12、依赖与实际 CUDA 小算子检查成功。本次未启动分割或生成模型，请停在此处。')
+        report.update(passed=True,gpu_verified=True,stage='complete',message=('当前真实环境检查通过，继续'+task_label+'。' if task_label else '环境检查通过：Python 3.12、依赖与实际 CUDA 小算子检查成功。本次未启动分割或生成模型，请停在此处。'))
     except Exception as exc:
         report['error']=str(exc);report['traceback']=traceback.format_exc()
         details=str(exc)+'\n'+str(getattr(exc,'stderr','') or '')+'\n'+str(getattr(exc,'output','') or '')
