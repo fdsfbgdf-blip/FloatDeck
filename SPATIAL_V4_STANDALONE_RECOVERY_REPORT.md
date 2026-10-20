@@ -39,7 +39,7 @@
 
 模拟环境/安装/SAM边界明确用mock，素材恢复使用真实子进程CLI和真实CPU ZIP/原生图像/hash验证；不将mock称为GPU实测。原诊断测试仍验证已满足依赖跳过安装。
 
-Notebook13代码单元AST/严格nbformat、单一上传调用/入口顺序检查、compileall、diff检查通过。私有真实mask回归仅本地运行，不向公共仓库上传；CI缺少fixture时明确skip。Actions提交后核验。
+Notebook13代码单元AST/严格nbformat、单一上传调用/入口顺序检查、compileall、diff检查通过。私有真实mask回归仅本地运行，不向公共仓库上传；CI缺少fixture时明确skip。[Actions39419356547](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39419356547) 对代码提交d8a66b3ccd6be052f216c4fd9520270b646e52d5已completed/success；CI共71项、70通过、1项私人素材回归明确skip。本地71项全部通过。
 
 **当前云端没有真实T4/torch，也不能访问用户Colab会话。全新Colab在线安装、真实CUDA恢复和新六候选推理尚未实测，不宣称分割成功。** 本轮没有运行Alpha/背景/最终生成，未改Android或其他分支。
 
