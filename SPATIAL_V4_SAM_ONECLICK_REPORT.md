@@ -30,8 +30,10 @@
 - 41项CPU测试通过：此前36项+5项SAM导出回归。覆盖六候选/命名中文预览、原生尺寸通道、基础不合格标记、无自动选择/批准、ZIP白名单与秘密过滤、无环境批准时零模型命令、解释器与basic检查拒绝、模拟SAM调用使用最新提示/复用版本锁/保留project文件。
 - 12代码单元AST、Notebook JSON/严格nbformat、独立SAM单元不安装依赖及后续阶段守卫检查通过；compileall与diff检查通过。
 - 以上模拟SAM明确是管道测试，不代表真实SAM分割成功。实际Colab权重下载/缓存命中、T4推理、真实仙女六候选质量、浏览器交互与自动下载仍需新单元实际运行确认。
-- GitHub Actions增加SAM导出测试，提交后补充结果。未修改Android、正式Shader、APP V1导入器或其他分支。
+- GitHub Actions增加SAM导出测试；[运行39390771889](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39390771889) 对代码提交 e8031135ec598b024b5dd7ceb5779daa9df0ff56 已 completed / success，包含41项CPU测试、严格Notebook检查及格式fixture校验。未修改Android、正式Shader、APP V1导入器或其他分支。
 
 ## 用户最少操作
 
 打开最新版同分支Notebook，在已通过检查的同一T4会话中，只点击「一键 SAM 分割与预览」播放键。原素材还在则无需上传；丢失时弹框只需选择原始spatial.zip。等待自动下载 `FloatDeck-SAM-review.zip`，把它发给ChatGPT即可，无需看日志/改代码/选候选。若整个Colab运行时被重置导致独立环境与通过报告丢失，才需先点已有的一键环境检查单元；不会绕过这一前置条件。
+
+另静态核对固定 transformers4.48.3 SamProcessor 的 _normalize_and_convert：支持输入点 [image, point_batch, points, XY] 与标签 [image, point_batch, points]；现有嵌套形状与自行原图坐标归一化/还原路径一致。这是接口检查，不是GPU推理验证。
