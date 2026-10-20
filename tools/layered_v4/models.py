@@ -96,12 +96,15 @@ def gpu_stage(work,name,fn):
         (Path(work)/f'{name}-execution.json').write_text(json.dumps(record,indent=2))
     return result
 
-def segment(work,config):
+def segment(work,config,targets=('person','pearl'),prompt_sets=None):
+    if not targets or any(n not in ['person','pearl'] for n in targets):raise ValueError('invalid segmentation targets')
+    if prompt_sets is not None and tuple(targets)!=('person',):raise ValueError('review prompt sets are person-only')
     workp=Path(work)
+    if 'pearl' in targets and (workp/'fixed-pearl.json').exists():raise RuntimeError('Approved pearl is locked; run person-only review, never resegment pearl')
     # Invalidate stale downstream approvals before any rerun, even if CUDA fails.
-    for f in ['segmentation-review.json','review.json','person_mask.png','pearl_mask.png']:
+    for f in ['segmentation-review.json','review.json']+[f'{n}_mask.png' for n in targets]:
         (workp/f).unlink(missing_ok=True)
-    for name in ['person','pearl']:
+    for name in targets:
         for f in list(workp.glob(f'{name}_candidate_*.png'))+[workp/f'{name}_proposal.json']:
             f.unlink(missing_ok=True)
     shutil.rmtree(workp/'segmentation-previews',ignore_errors=True)
@@ -113,21 +116,26 @@ def segment(work,config):
         image=read_image(workp/'source.png','RGB');w,h=image.size
         processor=SamProcessor.from_pretrained(spec['id'],revision=spec['revision'])
         model=SamModel.from_pretrained(spec['id'],revision=spec['revision'],torch_dtype=torch.float32).to('cuda').eval()
-        for name in ['person','pearl']:
-            box,points,labels=pixels(config['sam_prompts'][name],image.size)
-            inputs=processor(images=image,input_boxes=[[box]],input_points=[[points]],input_labels=[[labels]],return_tensors='pt')
-            original=inputs['original_sizes'];reshaped=inputs['reshaped_input_sizes']
-            inputs={k:v.to('cuda') for k,v in inputs.items() if k not in ['original_sizes','reshaped_input_sizes']}
-            with torch.inference_mode():output=model(**inputs,multimask_output=True)
-            masks=processor.image_processor.post_process_masks(output.pred_masks.cpu(),original,reshaped)[0][0].numpy()
-            scores=output.iou_scores[0,0].float().cpu().tolist()
-            if masks.shape!=(3,h,w) or len(scores)!=3 or not np.isfinite(scores).all():
-                raise RuntimeError('SAM candidates must be 3 native HxW masks with finite scores; no resize fallback')
-            for i,m in enumerate(masks):save_mask(workp/f'{name}_candidate_{i}.png',m)
-            checks=[check_mask(m,config['sam_prompts'][name],image.size,name) for m in masks]
-            (workp/f'{name}_proposal.json').write_text(json.dumps({'box':box,'points':points,'labels':labels,
-                 'scores':scores,'checks':checks,'selected_index':None,'accepted':False,
-                 'warning':'No automatic selection. Inspect ALL named candidates, copy chosen native mask explicitly; score is not object identity.'},indent=2))
+        for name in targets:
+            prompts=prompt_sets if prompt_sets is not None else [config['sam_prompts'][name]]
+            scores_all=[];checks_all=[];parameters=[]
+            for profile_index,prompt in enumerate(prompts):
+                box,points,labels=pixels(prompt,image.size)
+                inputs=processor(images=image,input_boxes=[[box]],input_points=[[points]],input_labels=[[labels]],return_tensors='pt')
+                original=inputs['original_sizes'];reshaped=inputs['reshaped_input_sizes']
+                inputs={k:v.to('cuda') for k,v in inputs.items() if k not in ['original_sizes','reshaped_input_sizes']}
+                with torch.inference_mode():output=model(**inputs,multimask_output=True)
+                masks=processor.image_processor.post_process_masks(output.pred_masks.cpu(),original,reshaped)[0][0].numpy()
+                scores=output.iou_scores[0,0].float().cpu().tolist()
+                if masks.shape!=(3,h,w) or len(scores)!=3 or not np.isfinite(scores).all():
+                    raise RuntimeError('SAM candidates must be 3 native HxW masks with finite scores; no resize fallback')
+                for i,m in enumerate(masks):save_mask(workp/f'{name}_candidate_{profile_index*3+i}.png',m)
+                scores_all.extend(scores)
+                checks_all.extend(check_mask(m,prompt,image.size,name) for m in masks)
+                parameters.extend({'profile_index':profile_index,'box':box,'points':points,'labels':labels,'prompt':prompt} for _ in masks)
+            (workp/f'{name}_proposal.json').write_text(json.dumps({'scores':scores_all,'checks':checks_all,
+                 'parameters':parameters,'selected_index':None,'accepted':False,
+                 'warning':'Inspection only; IoU is not identity. No automatic selection.'},indent=2))
         previews(workp,config)
         del model,processor
     return gpu_stage(work,'segment',run)

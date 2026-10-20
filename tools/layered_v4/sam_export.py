@@ -32,7 +32,7 @@ def candidate_review(work):
     make_sheets(p,report)
     return report
 
-def make_sheets(work,report):
+def make_sheets(work,report,names=None):
     from PIL import Image,ImageDraw,ImageFont
     p=Path(work)
     # Chinese captions are baked into review previews, not just Notebook print labels.
@@ -40,10 +40,10 @@ def make_sheets(work,report):
     font=ImageFont.truetype(str(font_path),22)
     error_names={'positive seed missing':'正点漏选','negative seed included':'负点误选',
                  'substantial support outside target box':'框外过多','empty/tiny or excessive image coverage':'面积异常'}
-    for name,label in NAMES.items():
+    for name,label in (names or NAMES).items():
         files=[('原图',p/'source.png'),('提示框与正负点',p/'segmentation-previews'/f'{name}_prompts.png')]
-        for i in range(3):
-            c=next(c for c in report['candidates'] if c['target']==name and c['candidate_index']==i)
+        for c in [c for c in report['candidates'] if c['target']==name]:
+            i=c['candidate_index']
             status='基础检查通过，待审核' if c['check']['passed'] else '不合格：'+','.join(error_names.get(e,'检查失败') for e in c['check']['errors'])
             files.extend([(f'候选{i} 遮罩',p/f'{name}_candidate_{i}.png'),(f'候选{i} {status}',p/'segmentation-previews'/f'{name}_candidate_{i}_overlay.png')])
         for idx,(title,path) in enumerate(files):
@@ -115,6 +115,7 @@ def run_export(base,root,archive=None,bootstrap_commands=()):
     s.report['commands'].extend(bootstrap_commands)
     s.env.update(HF_HOME=str(base/'cache'),HF_HUB_DISABLE_TELEMETRY='1',TOKENIZERS_PARALLELISM='false')
     try:
+        if (project/'fixed-pearl.json').exists():raise RuntimeError('珍珠已固定，请使用人物分割复审导出，禁止重新分割珍珠')
         s.report['previous_preflight']=require_environment(project,py)
         s.report['generator_commit']=s.command(['git','rev-parse','HEAD'],check=False).stdout.strip()
         if archive is None and not all((project/n).is_file() for n in ['source.png','source_depth.png']):

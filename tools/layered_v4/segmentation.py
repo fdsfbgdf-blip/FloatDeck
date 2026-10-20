@@ -68,3 +68,39 @@ def fingerprint(work,config):
 def require_review(work,config):
     p=Path(work);r=json.loads((p/'segmentation-review.json').read_text())
     if not r.get('human_approved') or r.get('fingerprint')!=fingerprint(p,config) or not inspect(p,config)['passed']:raise RuntimeError('Segmentation not reviewed/current/plausible; stop before matting')
+
+# Person-only re-review: two deliberately bounded hypotheses, three SAM outputs each.
+# These scene hints address reported background leakage; they are NOT approved masks.
+PERSON_REVIEW_PROFILES=[
+ {'id':'focused','description':'收紧左侧和下沿，优先减少平台与下方环境误吸',
+  'box':[.20,.285,.995,.715],
+  'positive':[[.49,.36],[.50,.437],[.30,.445],[.285,.432],[.46,.63],[.72,.56],[.70,.60],[.75,.39],[.56,.32],[.72,.466]],
+  'negative':[[.10,.50],[.14,.54],[.25,.32],[.31,.285],[.12,.61],[.065,.67],[.50,.81],[.80,.80],[.95,.64],[.94,.59],[.96,.25]]},
+ {'id':'skirt-coverage','description':'略扩左侧裙摆范围，保留同样环境负点，供完整性对照',
+  'box':[.13,.285,1.,.735],
+  'positive':[[.49,.36],[.50,.437],[.30,.445],[.285,.432],[.46,.63],[.28,.675],[.72,.56],[.70,.60],[.75,.39],[.56,.32],[.72,.466]],
+  'negative':[[.10,.50],[.14,.54],[.25,.32],[.31,.285],[.12,.61],[.065,.67],[.50,.81],[.80,.80],[.95,.64],[.94,.59],[.96,.25]]}]
+# Small diagnostic ROIs only; never erase pixels by these regions or clip candidates to a box.
+PERSON_BACKGROUND_PROBES={'left_platform':[.02,.49,.16,.55],'blue_ring':[.17,.285,.32,.33],
+                          'lower_left_reflection':[.015,.59,.115,.68],'right_rocks':[.92,.62,1.,.68]}
+
+def person_metrics(mask,prompt,size,pearl):
+    a=np.asarray(mask)>0;w,h=size;check=check_mask(a,prompt,size,'person')
+    regions={}
+    for key,(x0,y0,x1,y1) in PERSON_BACKGROUND_PROBES.items():
+        region=a[int(y0*h):max(int(y0*h)+1,int(y1*h)),int(x0*w):max(int(x0*w)+1,int(x1*w))]
+        regions[key]=float(region.mean())
+    _,pts,labels=pixels(prompt,size)
+    positives=[bool(a[int(y),int(x)]) for (x,y),label in zip(pts,labels) if label]
+    overlap=float((a&(np.asarray(pearl)>0)).sum()/max(1,a.sum()))
+    return {'basic':check,'positive_coverage':sum(positives)/len(positives),'background_roi_occupancy':regions,
+            'pearl_overlap_fraction':overlap,'semantic_quality_validated':False}
+
+def person_review_order(candidates):
+    # Inspection order only. Constraints and leakage precede completeness; IoU is deliberately ignored.
+    return sorted(range(len(candidates)),key=lambda i:(
+        not candidates[i]['metrics']['basic']['passed'],
+        len(candidates[i]['metrics']['basic']['errors']),
+        candidates[i]['metrics']['pearl_overlap_fraction'],
+        sum(candidates[i]['metrics']['background_roi_occupancy'].values()),
+        -candidates[i]['metrics']['positive_coverage'],i))
