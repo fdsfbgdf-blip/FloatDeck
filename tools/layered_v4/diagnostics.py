@@ -79,6 +79,71 @@ def install_plan(expected,installed):
     other=[f'{n}=={v}' for n,v in expected.items() if n not in ('torch','torchvision') and installed.get(n)!=v]
     return gpu,other
 
+
+PYTHON_HEALTH="import json,sys;print(json.dumps({'version':list(sys.version_info[:2]),'prefix':sys.prefix,'python':sys.executable}))"
+UV_VERSION='0.6.3'
+
+def python_health(session,py):
+    try:
+        r=session.command([py,'-c',PYTHON_HEALTH],check=False)
+        if r.returncode:return False,{'reason':'target Python cannot execute'}
+        info=json.loads(r.stdout)
+        if info.get('version')!=[3,12] or Path(info.get('prefix','')).resolve()!=Path(py).parent.parent.resolve():return False,{'reason':'target must be dedicated Python 3.12','observed':info}
+        pip=session.command([py,'-m','pip','--version'],check=False)
+        if pip.returncode:return False,{'reason':'pip unavailable in target environment','observed':info}
+        return True,{'observed':info,'pip_version':pip.stdout.strip()}
+    except (OSError,ValueError) as exc:return False,{'reason':str(exc)}
+
+def quarantine_venv(session,reason):
+    env=session.base/'python312'
+    if env.is_symlink():raise RuntimeError('Dedicated environment path is a symlink; refusing to modify another environment')
+    if env.exists():
+        if not env.is_dir():raise RuntimeError('Dedicated environment path is not a directory; preserved unchanged')
+        saved=env.with_name('python312.quarantined-'+str(time.time_ns()));env.rename(saved)
+        session.report.setdefault('quarantined_venvs',[]).append({'path':str(saved),'reason':reason})
+
+def uv_command(session):
+    module=[sys.executable,'-m','uv']
+    r=session.command(module+['--version'],check=False)
+    if r.returncode==0 and r.stdout.strip().split()[:2]==['uv',UV_VERSION]:return module
+    # Isolated bootstrap tools: never replace kernel/DA3 packages or depend on system ensurepip.
+    target=session.base/'bootstrap-tools'/('uv-'+UV_VERSION);binary=target/'bin/uv'
+    if binary.is_file():
+        r=session.command([binary,'--version'],check=False)
+        if r.returncode==0 and r.stdout.strip().split()[:2]==['uv',UV_VERSION]:return [str(binary)]
+    session.command([sys.executable,'-m','pip','install','--upgrade','--target',target,'uv=='+UV_VERSION])
+    r=session.command([binary,'--version'])
+    if r.stdout.strip().split()[:2]!=['uv',UV_VERSION]:raise RuntimeError('Pinned uv bootstrap version mismatch')
+    return [str(binary)]
+
+def ensure_target_python(session):
+    env=session.base/'python312';py=env/'bin/python'
+    if env.is_symlink():raise RuntimeError('Dedicated environment path is a symlink; refusing to modify it')
+    healthy,health=python_health(session,py) if py.exists() else (False,{'reason':'missing or partially created Python'})
+    if healthy:
+        session.report['python_environment']={'reused':True,**health};return py
+    quarantine_venv(session,health['reason'])
+    uv=uv_command(session);session.report['uv_command']=list(map(str,uv))
+    session.env.update(UV_CACHE_DIR=str(session.base/'uv-cache'),UV_PYTHON_INSTALL_DIR=str(session.base/'managed-python'))
+    interpreter='3.12'
+    for attempt in range(2):
+        try:
+            args=uv+['venv','--python',interpreter,'--seed','--no-python-downloads',str(env)]
+            session.command(args)
+            healthy,health=python_health(session,py)
+            if not healthy:raise RuntimeError('Seeded environment failed Python/pip verification: '+str(health))
+            session.report['python_environment']={'reused':False,'creation_attempt':attempt+1,**health};return py
+        except (OSError,RuntimeError,subprocess.CalledProcessError) as exc:
+            session.report.setdefault('python_creation_failures',[]).append({'attempt':attempt+1,'error':str(exc)})
+            if attempt:raise
+            quarantine_venv(session,'failed uv environment creation/seeding')
+            # Explicit managed-Python fallback; never retry the known-broken stdlib venv command.
+            session.command(uv+['python','install','3.12'])
+            interpreter=session.command(uv+['python','find','--python-preference','only-managed','3.12']).stdout.strip()
+            if not interpreter or not Path(interpreter).is_absolute():raise RuntimeError('uv did not resolve a managed Python 3.12 path')
+    raise RuntimeError('Python environment creation failed')
+
+
 def prepare(session,task_label=None):
     """Always package a report. All installs target the dedicated Python, never the kernel."""
     s=session;report=s.report;py=s.base/'python312/bin/python';cache=s.base/'cache';work=s.base/'project-001'
@@ -99,15 +164,7 @@ def prepare(session,task_label=None):
         report['stage']='disk'
         if free<20:raise RuntimeError(f'Need >=20 GiB free disk; observed {free:.3f} GiB')
         report['stage']='python'
-        if not py.exists():
-            base=shutil.which('python3.12')
-            if sys.version_info[:2]==(3,12):base=sys.executable
-            if not base:
-                uv=s.command([sys.executable,'-m','uv','--version'],check=False)
-                if uv.returncode:s.command([sys.executable,'-m','pip','install','uv==0.6.3'])
-                s.command([sys.executable,'-m','uv','python','install','3.12'])
-                base=s.command([sys.executable,'-m','uv','python','find','3.12']).stdout.strip()
-            s.command([base,'-m','venv',str(py.parent.parent)])
+        py=ensure_target_python(s)
         pins=expected_versions(s.root)
         info=json.loads(s.command([py,'-c',PROBE,json.dumps(list(pins))]).stdout)
         report['observations']['before_install']=info

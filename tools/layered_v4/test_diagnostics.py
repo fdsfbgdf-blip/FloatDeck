@@ -38,7 +38,7 @@ class DiagnosticTests(unittest.TestCase):
             s=DiagnosticSession(base,ROOT);pins=expected_versions(ROOT);calls=[]
             def command(argv,check=True):
                 argv=list(map(str,argv));calls.append(argv)
-                if '-c' in argv:return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'packages':pins}),returncode=0)
+                if '-c' in argv:return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'prefix':str(py.parent.parent),'packages':pins}),returncode=0)
                 if 'preflight' in argv:
                     w=Path(argv[-1]);(w/'preflight.json').write_text(json.dumps({'passed':True,'gpu_probe_passed':True,'basic_only':False,'stage':'complete'}))
                 return NS(stdout='',stderr='',returncode=0,args=argv)
@@ -61,7 +61,7 @@ class DiagnosticTests(unittest.TestCase):
             s=DiagnosticSession(base,ROOT);pins=expected_versions(ROOT);pins['addict']=None;calls=[]
             def command(argv,check=True):
                 args=list(map(str,argv));calls.append(args)
-                if '-c' in args:return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'packages':pins}),returncode=0)
+                if '-c' in args:return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'prefix':str(py.parent.parent),'packages':pins}),returncode=0)
                 if 'install' in args:raise subprocess.CalledProcessError(1,args,'install-output','specific-install-error')
                 return NS(stdout='',stderr='',returncode=0)
             with patch.object(s,'command',side_effect=command),patch('shutil.disk_usage',return_value=NS(free=40*2**30)),patch('shutil.which',return_value=None):r=prepare(s)

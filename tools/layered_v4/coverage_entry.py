@@ -74,24 +74,14 @@ def ensure_environment(session):
     if old.exists():
         old.replace(project/f'preflight.previous-{time.time_ns()}.json')
         session.report['previous_preflight_quarantined']=True
-    for attempt in range(2):
-        # Existing implementation skips satisfied pins, reuses caches, creates PY3.12 as necessary.
-        result=prepare(session,task_label='人物覆盖复审')
-        snapshot={k:copy.deepcopy(v) for k,v in session.report.items() if k in ['passed','stage','error','traceback','observations','preflight','target_python','install_plan','gpu_verified']}
-        session.report.setdefault('environment_attempts',[]).append(snapshot)
-        if result['passed']:
-            record=require_environment(project,result['python'])
-            if not record.get('gpu_probe_passed'):raise RuntimeError('当前GPU真实检查没有通过')
-            return result,record
-        # Reversible repair only of our dedicated venv, never a user/DA3 environment or a symlink.
-        env=session.base/'python312'
-        if attempt==0 and session.report.get('stage')=='python' and env.is_dir() and not env.is_symlink() and (env/'pyvenv.cfg').is_file():
-            renamed=env.with_name('python312.quarantined-'+str(time.time_ns()));env.rename(renamed)
-            session.report['quarantined_venv']=str(renamed)
-            for key in ['error','traceback']:session.report.pop(key,None)
-            continue
-        raise RuntimeError(session.report.get('message','真实环境准备失败，已停止'))
-    raise RuntimeError('环境重建仍失败，已停止')
+    # Shared uv-based preparation owns bounded recovery; no second, independent venv retry loop.
+    result=prepare(session,task_label='人物覆盖复审')
+    snapshot={k:copy.deepcopy(v) for k,v in session.report.items() if k in ['passed','stage','error','traceback','observations','preflight','target_python','install_plan','gpu_verified','python_environment','python_creation_failures','quarantined_venvs']}
+    session.report.setdefault('environment_attempts',[]).append(snapshot)
+    if not result['passed']:raise RuntimeError(session.report.get('message','真实环境准备失败，已停止'))
+    record=require_environment(project,result['python'])
+    if not record.get('gpu_probe_passed'):raise RuntimeError('当前GPU真实检查没有通过')
+    return result,record
 
 def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=()):
     base=Path(base);root=Path(root);project=base/'project-001'

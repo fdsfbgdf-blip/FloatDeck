@@ -99,16 +99,15 @@ class CoverageRecoveryTests(unittest.TestCase):
             self.assertEqual(json.loads((project/'preflight.json').read_text()),{'current':True})
             self.assertFalse((project/'segmentation-review.json').exists());self.assertFalse((project/'person_mask.png').exists())
             self.assertEqual((project/'pearl_mask.png').read_bytes(),(p/'work/pearl_candidate_2.png').read_bytes())
-    def test_broken_dedicated_venv_is_quarantined_once_then_recreated(self):
+    def test_shared_prepare_failure_is_not_retried_by_entry(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);venv=p/'python312';venv.mkdir();(venv/'pyvenv.cfg').write_text('old')
-            s=DiagnosticSession(p,ROOT);attempts=[]
-            def repair(s,task_label=None):
-                attempts.append(1)
-                if len(attempts)==1:s.report.update(stage='python',message='wrong interpreter');return {'passed':False}
-                self.assertFalse(venv.exists());return self.ready(s,task_label)
-            with patch('tools.layered_v4.coverage_entry.prepare',side_effect=repair):r,record=ensure_environment(s)
-            self.assertTrue(r['passed']);self.assertEqual(len(attempts),2);self.assertTrue(list(p.glob('python312.quarantined-*')))
+            s=DiagnosticSession(p,ROOT)
+            def fail(s,task_label=None):
+                s.report.update(stage='python',message='creation failed');return {'passed':False}
+            with patch('tools.layered_v4.coverage_entry.prepare',side_effect=fail) as prep:
+                with self.assertRaisesRegex(RuntimeError,'creation failed'):ensure_environment(s)
+            prep.assert_called_once();self.assertTrue(venv.exists())
     def test_missing_preflight_is_actionable_runtime_error_not_file_trace(self):
         from .sam_export import require_environment
         with tempfile.TemporaryDirectory() as d:
@@ -138,12 +137,13 @@ class CoverageRecoveryTests(unittest.TestCase):
             def command(args,check=True):
                 nonlocal installed
                 args=list(map(str,args));calls.append(args)
+                if 'uv' in args and '--version' in args:return NS(stdout='uv 0.6.3',returncode=0)
                 if 'venv' in args:
                     py.parent.mkdir(parents=True);py.touch();(py.parent.parent/'pyvenv.cfg').write_text('simulated dedicated venv')
                 if 'install' in args:installed=True
                 if '-c' in args:
                     versions=pins if installed else {key:None for key in pins}
-                    return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'packages':versions}),returncode=0)
+                    return NS(stdout=json.dumps({'python':str(py),'version':[3,12],'prefix':str(py.parent.parent),'packages':versions}),returncode=0)
                 if 'preflight' in args:
                     (p/'project-001/preflight.json').write_text(json.dumps({'passed':True,'gpu_probe_passed':True,'basic_only':False,'python':str(py),'simulation':True,'stage':'complete'}))
                 return NS(stdout='',stderr='',returncode=0,args=args)
