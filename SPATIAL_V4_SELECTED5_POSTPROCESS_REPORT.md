@@ -36,7 +36,7 @@
 
 54项CPU测试通过，含实际提供的原生人物mask回归：清理逐像素等于下载结果、删除数/区域数精确、右腿保护、原样珍珠哈希、无新增像素。另测试精确输入绑定（不同素材不能套用批准）、清理后篡改失效、真实失败指标保留、人审只批准二值、mock matting输出真RGBA但不冒充GPU实测/不批准背景。
 
-Notebook14代码单元AST/严格nbformat/阶段顺序守卫通过；compileall、git diff检查通过。Actions提交后核验。实际用户mask回归在本地执行通过；CI按明确skip保留该检查，未上传私人fixture。
+Notebook14代码单元AST/严格nbformat/阶段顺序守卫通过；compileall、git diff检查通过。[Actions39397330712](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39397330712) 对代码提交aa52a5be750b973dd6eb4081fa7254c03a2dd4ab已completed/success；CI执行54项，其中私人素材回归明确skip、其余53项通过。本地54项全部通过。实际用户mask回归在本地执行通过；CI按明确skip保留该检查，未上传私人fixture。
 
 从用户提供ZIP可见**此前**真实SAM记录：28.982秒、峰值allocated2.708GiB/reserved3.025GiB、执行成功。这是用户T4包内记录，不是本轮云端推理。
 
