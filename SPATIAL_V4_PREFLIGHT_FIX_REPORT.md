@@ -20,7 +20,9 @@
 
 ## 验证
 
-本地 29 项 CPU 测试通过；Notebook JSON、11 个代码单元 AST、nbformat 严格检查通过；compileall 与 diff whitespace 检查通过。独立 Python3.12 解释器用于上述检查；无 torch、无 nvidia-smi，无真实 T4/CUDA，未进行 GPU 导入/算子/显存验证。未启动 SAM/VitMatte/背景补全，也未下载全部模型。Actions 结果在提交后核验补充。
+本地 29 项 CPU 测试通过；Notebook JSON、11 个代码单元 AST、nbformat 严格检查通过；compileall 与 diff whitespace 检查通过。独立 Python3.12 解释器用于上述检查；无 torch、无 nvidia-smi，无真实 T4/CUDA，未进行 GPU 导入/算子/显存验证。未启动 SAM/VitMatte/背景补全，也未下载全部模型。[GitHub Actions 39388269448](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39388269448) 对代码提交 3d115cab0632bb89bf67b2197cfcaa3e315f9416 已 completed / success。
+
+另在本云端真实执行了完整 CLI preflight（未使用 --basic）：按预期退出 1，报告 stage=dependencies、passed=false、gpu_probe_passed=false、具体异常 `No package metadata was found for torch`，stderr 已落盘。这验证真实失败报告路径，不能用于解释用户 Colab 的具体失败，亦不构成 GPU 成功。
 
 Android、正式 Shader、V1 APP 导入器无修改，只提交 spatial-layered-v4-generator 分支。
 
