@@ -16,3 +16,5 @@
 86项CPU测试通过，包括ROI外逐像素保持、背景/珍珠排除、原生坐标/笔刷半径、非法坐标、撤销恢复、过期候选、导出恢复和审批不恢复。Notebook15代码单元严格nbformat/AST/执行顺序通过，JS node --check、compileall与diff检查通过。
 
 尚未执行真实Colab浏览器交互或T4 SAM；不能声称交互/画质已通过。本轮用户说将附的Reject evidence ZIP未收到可读取附件，没有伪称检查其中图片。实际发丝、半透明白纱和裙摆语义需用户用新工具编辑后继续人工审核。较大原生画布和逐次完整SAM编码的浏览器/GPU耗时待T4实测。
+
+GitHub Actions：904dee1 的 CPU/Notebook/schema 检查成功，https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39430500903 。无私有素材的CI用例按设计跳过；不包含真实浏览器/T4验证。
