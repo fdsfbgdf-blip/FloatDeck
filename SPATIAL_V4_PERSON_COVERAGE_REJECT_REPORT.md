@@ -39,7 +39,7 @@
 
 有一项使用此前真实人物mask的本地结构回归，仍只验证历史清理算子，没有表示被Reject的人物语义合格；私人fixture不提交，CI缺少时明确skip。其余合成测试同样不证明新真实画质。
 
-本云端无T4/torch、不能访问用户Colab。本轮新SAM推理与新真实复审ZIP **尚未产生**，需要在用户T4运行该单元；不会把旧mask并集或合成测试结果包装成新真实结果。未上传任何真实mask/原图/Alpha到公共仓库；未改Android/正式Shader/APP V1导入器、依赖或环境预检查。Actions提交后补充结果。
+本云端无T4/torch、不能访问用户Colab。本轮新SAM推理与新真实复审ZIP **尚未产生**，需要在用户T4运行该单元；不会把旧mask并集或合成测试结果包装成新真实结果。未上传任何真实mask/原图/Alpha到公共仓库；未改Android/正式Shader/APP V1导入器、依赖或环境预检查。[Actions39399682266](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39399682266) 对代码提交ddf116239264fee43881f08e05c430d741c3a089已completed/success。CI59项中58通过、1项私人素材回归明确skip；本地59项全部通过。
 
 ## 用户只需操作
 
