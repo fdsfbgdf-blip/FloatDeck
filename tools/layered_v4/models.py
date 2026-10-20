@@ -120,19 +120,33 @@ def segment(work,config,targets=('person','pearl'),prompt_sets=None):
             prompts=prompt_sets if prompt_sets is not None else [config['sam_prompts'][name]]
             scores_all=[];checks_all=[];parameters=[]
             for profile_index,prompt in enumerate(prompts):
-                box,points,labels=pixels(prompt,image.size)
-                inputs=processor(images=image,input_boxes=[[box]],input_points=[[points]],input_labels=[[labels]],return_tensors='pt')
-                original=inputs['original_sizes'];reshaped=inputs['reshaped_input_sizes']
-                inputs={k:v.to('cuda') for k,v in inputs.items() if k not in ['original_sizes','reshaped_input_sizes']}
-                with torch.inference_mode():output=model(**inputs,multimask_output=True)
-                masks=processor.image_processor.post_process_masks(output.pred_masks.cpu(),original,reshaped)[0][0].numpy()
-                scores=output.iou_scores[0,0].float().cpu().tolist()
-                if masks.shape!=(3,h,w) or len(scores)!=3 or not np.isfinite(scores).all():
-                    raise RuntimeError('SAM candidates must be 3 native HxW masks with finite scores; no resize fallback')
+                part_masks=[];part_scores=[];part_parameters=[]
+                parts=prompt.get('parts',[prompt])
+                for part_index,part in enumerate(parts):
+                    box,points,labels=pixels(part,image.size)
+                    inputs=processor(images=image,input_boxes=[[box]],input_points=[[points]],input_labels=[[labels]],return_tensors='pt')
+                    original=inputs['original_sizes'];reshaped=inputs['reshaped_input_sizes']
+                    inputs={k:v.to('cuda') for k,v in inputs.items() if k not in ['original_sizes','reshaped_input_sizes']}
+                    with torch.inference_mode():output=model(**inputs,multimask_output=True)
+                    masks=processor.image_processor.post_process_masks(output.pred_masks.cpu(),original,reshaped)[0][0].numpy()
+                    scores=output.iou_scores[0,0].float().cpu().tolist()
+                    if masks.shape!=(3,h,w) or len(scores)!=3 or not np.isfinite(scores).all():
+                        raise RuntimeError('SAM candidates must be 3 native HxW masks with finite scores; no resize fallback')
+                    part_masks.append(masks);part_scores.append(scores)
+                    part_parameters.append({'box':box,'points':points,'labels':labels,'prompt':part})
+                    if 'parts' in prompt:
+                        folder=workp/'person_parts';folder.mkdir(exist_ok=True)
+                        for i,m in enumerate(masks):save_mask(folder/f'profile{profile_index}_part{part_index}_candidate{i}.png',m)
+                if 'parts' in prompt:
+                    from .segmentation import union_part_candidates
+                    masks=union_part_candidates(part_masks)
+                    scores=[None]*3 # SAM never scored the union; do not invent an IoU for it.
+                else:masks=part_masks[0];scores=part_scores[0]
                 for i,m in enumerate(masks):save_mask(workp/f'{name}_candidate_{profile_index*3+i}.png',m)
                 scores_all.extend(scores)
                 checks_all.extend(check_mask(m,prompt,image.size,name) for m in masks)
-                parameters.extend({'profile_index':profile_index,'box':box,'points':points,'labels':labels,'prompt':prompt} for _ in masks)
+                parameters.extend({'profile_index':profile_index,'prompt':prompt,'parts':part_parameters,
+                                   'part_iou_scores':part_scores,'composition':'paired-index-union' if 'parts' in prompt else 'single-SAM-output'} for _ in masks)
             (workp/f'{name}_proposal.json').write_text(json.dumps({'scores':scores_all,'checks':checks_all,
                  'parameters':parameters,'selected_index':None,'accepted':False,
                  'warning':'Inspection only; IoU is not identity. No automatic selection.'},indent=2))
@@ -147,6 +161,8 @@ def starts(length,tile,overlap):
     return values
 
 def matte(work,config):
+    from .review_policy import guard_generation
+    guard_generation() # latest Reject blocks before any GPU/model loading
     from .segmentation import require_review
     require_review(work,config) # fail BEFORE importing/loading GPU models
     def run():
@@ -190,6 +206,8 @@ def matte(work,config):
     return gpu_stage(work,'matte',run)
 
 def background(work,config):
+    from .review_policy import guard_generation
+    guard_generation() # latest Reject blocks before any GPU/model loading
     def run():
         import torch
         from diffusers import AutoPipelineForInpainting

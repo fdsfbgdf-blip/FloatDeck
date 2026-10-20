@@ -66,6 +66,8 @@ def fingerprint(work,config):
     return {'files':{n:digest(p/n) for n in ['source.png','person_mask.png','pearl_mask.png']},'prompts':config['sam_prompts']}
 
 def require_review(work,config):
+    from .review_policy import guard_generation
+    guard_generation()
     p=Path(work);r=json.loads((p/'segmentation-review.json').read_text())
     if not r.get('human_approved') or r.get('fingerprint')!=fingerprint(p,config):raise RuntimeError('Segmentation not reviewed/current; stop before matting')
     measured=inspect(p,config) # retain actual failures even when target identity was manually approved
@@ -77,15 +79,37 @@ def require_review(work,config):
 
 # Person-only re-review: two deliberately bounded hypotheses, three SAM outputs each.
 # These scene hints address reported background leakage; they are NOT approved masks.
+# Expanded semantic coverage: one whole-person hypothesis plus an auditable union
+# of independently prompted garment/body parts. Three paired multimasks each, six total.
+_REVIEW_NEG=[[.10,.50],[.14,.54],[.25,.32],[.31,.285],[.08,.61],[.04,.67],[.50,.81],[.80,.80],[.96,.66],[.97,.61],[.96,.25]]
+_REVIEW_POS=[[.49,.36],[.56,.32],[.75,.39],[.84,.36],[.30,.445],[.285,.432],
+ [.50,.437],[.50,.48],[.48,.53],[.46,.58],[.72,.466],[.80,.49],[.92,.50],
+ [.46,.63],[.35,.66],[.28,.68],[.20,.70],[.72,.55],[.73,.59],[.70,.62]]
 PERSON_REVIEW_PROFILES=[
- {'id':'focused','description':'收紧左侧和下沿，优先减少平台与下方环境误吸',
-  'box':[.20,.285,.995,.715],
-  'positive':[[.49,.36],[.50,.437],[.30,.445],[.285,.432],[.46,.63],[.72,.56],[.70,.60],[.75,.39],[.56,.32],[.72,.466]],
-  'negative':[[.10,.50],[.14,.54],[.25,.32],[.31,.285],[.12,.61],[.065,.67],[.50,.81],[.80,.80],[.95,.64],[.94,.59],[.96,.25]]},
- {'id':'skirt-coverage','description':'略扩左侧裙摆范围，保留同样环境负点，供完整性对照',
-  'box':[.13,.285,1.,.735],
-  'positive':[[.49,.36],[.50,.437],[.30,.445],[.285,.432],[.46,.63],[.28,.675],[.72,.56],[.70,.60],[.75,.39],[.56,.32],[.72,.466]],
-  'negative':[[.10,.50],[.14,.54],[.25,.32],[.31,.285],[.12,.61],[.065,.67],[.50,.81],[.80,.80],[.95,.64],[.94,.59],[.96,.25]]}]
+ {'id':'full-garment-v2','description':'补足白纱/腰腹/左下裙摆/腿脚正点；不以清理代替人物完整性',
+  'box':[.10,.28,1.,.75],'positive':_REVIEW_POS,'negative':_REVIEW_NEG},
+ {'id':'parts-union-v2','description':'头手发、白纱腰腹、裙摆、腿脚分别提示，逐索引并集，保留全部部件供审核',
+  'box':[.10,.28,1.,.75],'positive':_REVIEW_POS,'negative':_REVIEW_NEG,
+  'parts':[
+   {'id':'head-hands-hair','box':[.23,.28,1.,.515],
+    'positive':[[.49,.36],[.56,.32],[.75,.39],[.84,.36],[.30,.445],[.285,.432]],'negative':_REVIEW_NEG},
+   {'id':'sleeve-torso','box':[.30,.405,1.,.625],
+    'positive':[[.50,.437],[.50,.48],[.48,.53],[.46,.58],[.72,.466],[.80,.49],[.92,.50]],'negative':_REVIEW_NEG},
+   {'id':'large-skirt','box':[.10,.50,.82,.75],
+    'positive':[[.46,.63],[.35,.66],[.28,.68],[.20,.70],[.43,.60]],'negative':_REVIEW_NEG},
+   {'id':'leg-foot','box':[.61,.485,.90,.665],
+    'positive':[[.72,.55],[.73,.59],[.70,.62]],'negative':_REVIEW_NEG}]}]
+# Sample-point completeness is diagnostic, not a substitute for semantic or alpha review.
+PERSON_COVERAGE_PROBES={
+ 'white_sleeve':[[.72,.466],[.80,.49],[.92,.50]],'chest_waist':[[.50,.437],[.50,.48],[.48,.53],[.46,.58]],
+ 'large_skirt':[[.46,.63],[.35,.66],[.28,.68],[.20,.70]],'leg_foot':[[.72,.55],[.73,.59],[.70,.62]],
+ 'hair_tips':[[.75,.39],[.84,.36]]}
+
+def union_part_candidates(parts):
+    arrays=[np.asarray(p,dtype=bool) for p in parts]
+    if not arrays or arrays[0].ndim!=3 or arrays[0].shape[0]!=3 or any(a.shape!=arrays[0].shape for a in arrays):raise ValueError('part candidates must share native (3,H,W) registration')
+    return np.logical_or.reduce(arrays)
+
 # Small diagnostic ROIs only; never erase pixels by these regions or clip candidates to a box.
 PERSON_BACKGROUND_PROBES={'left_platform':[.02,.49,.16,.55],'blue_ring':[.17,.285,.32,.33],
                           'lower_left_reflection':[.015,.59,.115,.68],'right_rocks':[.92,.62,1.,.68]}
@@ -100,13 +124,23 @@ def person_metrics(mask,prompt,size,pearl):
     positives=[bool(a[int(y),int(x)]) for (x,y),label in zip(pts,labels) if label]
     overlap=float((a&(np.asarray(pearl)>0)).sum()/max(1,a.sum()))
     return {'basic':check,'positive_coverage':sum(positives)/len(positives),'background_roi_occupancy':regions,
-            'pearl_overlap_fraction':overlap,'semantic_quality_validated':False}
+            'pearl_overlap_fraction':overlap,'roi_mask_occupancy_not_accuracy':{key:float(a[int(r['box'][1]*h):max(int(r['box'][1]*h)+1,int(r['box'][3]*h)),int(r['box'][0]*w):max(int(r['box'][0]*w)+1,int(r['box'][2]*w))].mean()) for key,r in PERSON_COVERAGE_ROIS.items()},
+            'coverage_by_region':{key:float(np.mean([a[min(h-1,int(y*h)),min(w-1,int(x*w))] for x,y in pts])) for key,pts in PERSON_COVERAGE_PROBES.items()},
+            'semantic_quality_validated':False}
 
 def person_review_order(candidates):
     # Inspection order only. Constraints and leakage precede completeness; IoU is deliberately ignored.
     return sorted(range(len(candidates)),key=lambda i:(
         not candidates[i]['metrics']['basic']['passed'],
         len(candidates[i]['metrics']['basic']['errors']),
+        -min(candidates[i]['metrics'].get('coverage_by_region',{'legacy':1}).values()),
         candidates[i]['metrics']['pearl_overlap_fraction'],
         sum(candidates[i]['metrics']['background_roi_occupancy'].values()),
         -candidates[i]['metrics']['positive_coverage'],i))
+
+PERSON_COVERAGE_ROIS={
+ 'white_sleeve':{'label':'白纱衣袖','box':[.58,.445,1.,.535]},
+ 'chest_waist':{'label':'胸口腰腹','box':[.40,.46,.61,.61]},
+ 'large_skirt':{'label':'主要裙摆','box':[.16,.58,.65,.735]},
+ 'leg_foot':{'label':'右腿脚部','box':[.65,.51,.84,.64]},
+ 'hair_tips':{'label':'头发末梢','box':[.66,.31,.94,.44]}}

@@ -146,6 +146,8 @@ def review_fingerprint(work):
     return {n:digest(work/n) for n in files}
 
 def build(work,config):
+    from .review_policy import guard_generation
+    guard_generation()
     work=Path(work);source=np.array(read_image(work/'source.png','RGB'));size=(source.shape[1],source.shape[0])
     provenance=json.loads((work/'background_record.json').read_text())
     if provenance.get('provider')=='sdxl-inpaint-global-and-native-tiles':
@@ -184,6 +186,8 @@ def build(work,config):
     return report
 
 def pack(work,destination,require_acceptance=True):
+    from .review_policy import guard_generation
+    guard_generation()
     work=Path(work);q=json.loads((work/'quality.json').read_text());identity=json.loads((work/'input.json').read_text())
     if identity['source_sha256']!=digest(work/'source.png') or identity['depth_sha256']!=digest(work/'source_depth.png'):raise ValueError('canonical input changed')
     approvals=json.loads((work/'review.json').read_text())

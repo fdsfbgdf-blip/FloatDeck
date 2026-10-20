@@ -9,6 +9,9 @@ from .validate import validate
 
 class GeneratorTests(unittest.TestCase):
     def setUp(self):
+        # Explicit synthetic schema/math sandbox; never a real scene or accepted image.
+        from unittest.mock import patch
+        policy=patch('tools.layered_v4.review_policy.GENERATION_PAUSED',False);policy.start();self.addCleanup(policy.stop)
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.work=self.root/'work'
         w,h=96,160;y,x=np.mgrid[:h,:w]
         bg=np.stack([x+40,y//2+60,(x+y)//3+40],axis=2).astype('uint8')
@@ -149,7 +152,7 @@ class SegmentationTests(unittest.TestCase):
     def test_matte_blocked_before_torch_without_review(self):
         from .models import matte
         with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(FileNotFoundError):matte(d,DEFAULT)
+            with self.assertRaisesRegex(RuntimeError,'Reject'):matte(d,DEFAULT)
     def test_old_box_only_config_rejected(self):
         from .cli import check_config
         c=dict(DEFAULT);c.pop('sam_prompts')

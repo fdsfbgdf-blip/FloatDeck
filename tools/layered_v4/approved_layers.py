@@ -56,6 +56,8 @@ def mask_previews(work):
     color=rgb.copy();color[old&~new]=[255,50,20];im=Image.fromarray(color);im.thumbnail((720,1280));im.save(out/'removed_fragments_red.jpg',quality=94)
 
 def prepare_selection(archive,work,project):
+    from .review_policy import reject_legacy_person5
+    reject_legacy_person5() # permanent; future approvals cannot resurrect the rejected old person5
     import numpy as np
     from PIL import Image
     from .core import digest,load_mask,save_mask
@@ -114,6 +116,8 @@ def alpha_previews(work):
     (p/'ALPHA_REVIEW_REQUIRED.txt').write_text('真实Alpha已推理；RGB仅来自原图，尚未进行补全背景去污染。必须审核发丝、白纱、黑白边及保护核心后才能批准背景补全，不能将此包当最终spatial-v2。')
 
 def execute_alpha(work):
+    from .review_policy import reject_legacy_person5
+    reject_legacy_person5() # permanent; future approvals cannot resurrect the rejected old person5
     from .models import matte,model_spec,DEFAULT_MODELS
     from .cli import seal_masks
     p=Path(work);cfg=json.loads((p/'config.json').read_text());lock=json.loads((p/'models.lock.json').read_text())
@@ -163,6 +167,8 @@ def run_approved_stage(base,root,archive,bootstrap_commands=()):
 
 
 def validate_selection(work):
+    from .review_policy import reject_legacy_person5
+    reject_legacy_person5() # permanent; future approvals cannot resurrect the rejected old person5
     import numpy as np
     from PIL import Image
     from .core import digest,load_mask

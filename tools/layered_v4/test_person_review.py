@@ -33,7 +33,7 @@ class PersonReviewTests(unittest.TestCase):
             self.assertEqual(digest(work/'pearl_mask.png'),digest(project/'pearl_mask.png'))
             self.assertFalse((work/'person_mask.png').exists());self.assertFalse((work/'review.json').exists())
             r=json.loads((work/'person-checks.json').read_text());self.assertEqual(len(r['candidates']),6);self.assertIsNone(r['selected']);self.assertFalse(r['human_approved'])
-            self.assertEqual(len(list((work/'segmentation-previews').glob('person_review_*.jpg'))),16)
+            self.assertEqual(len(list((work/'segmentation-previews').glob('person_review_*.jpg'))),46)
             z=export_person(work,DiagnosticSession(root,ROOT))
             with zipfile.ZipFile(z) as a:self.assertEqual(a.read('pearl_mask.png'),a.read('pearl_candidate_2.png'));self.assertIn('人物复审说明.md',a.namelist())
     def test_fixed_pearl_tampering_rejected(self):
@@ -69,3 +69,35 @@ class PersonReviewTests(unittest.TestCase):
             p=Path(d);(p/'fixed-pearl.json').write_text('{}');(p/'pearl_mask.png').write_bytes(b'approved')
             with self.assertRaisesRegex(RuntimeError,'locked'):segment(p,DEFAULT)
             self.assertEqual((p/'pearl_mask.png').read_bytes(),b'approved')
+    def test_parts_union_keeps_detached_garments_without_adding_unsampled_pixels(self):
+        from .segmentation import union_part_candidates
+        upper=np.zeros((3,160,96),bool);upper[:,40:70,35:55]=True
+        skirt=np.zeros_like(upper);skirt[:,100:115,20:65]=True
+        leg=np.zeros_like(upper);leg[:,80:110,68:77]=True
+        union=union_part_candidates([upper,skirt,leg])
+        self.assertTrue(union[:,105,25].all());self.assertTrue(union[:,90,70].all())
+        np.testing.assert_array_equal(union,upper|skirt|leg)
+        with self.assertRaises(ValueError):union_part_candidates([upper,leg[:,:-1]])
+    def test_new_profiles_include_white_cloth_skirt_leg_and_hair(self):
+        from .segmentation import PERSON_COVERAGE_PROBES
+        self.assertIn('parts',PERSON_REVIEW_PROFILES[1]);self.assertEqual(len(PERSON_REVIEW_PROFILES[1]['parts']),4)
+        for part in PERSON_REVIEW_PROFILES[1]['parts']:pixels(part,(1648,2944))
+        for key in ['white_sleeve','chest_waist','large_skirt','leg_foot','hair_tips']:self.assertIn(key,PERSON_COVERAGE_PROBES)
+    def test_rejection_blocks_all_generation_before_any_models_or_files(self):
+        from .models import matte,background
+        from .core import build,pack
+        from .approved_layers import execute_alpha,prepare_selection
+        with tempfile.TemporaryDirectory() as d:
+            for operation in [lambda:matte(d,{}),lambda:background(d,{}),lambda:build(d,{}),lambda:pack(d,'out.zip'),lambda:execute_alpha(d),lambda:prepare_selection('missing.zip',d,d)]:
+                with self.assertRaisesRegex(RuntimeError,'Reject'):operation()
+    def test_coverage_metrics_do_not_mistake_face_only_for_full_person(self):
+        from .segmentation import person_metrics
+        a=np.zeros((160,96));a[45:65,39:59]=1
+        m=person_metrics(a,PERSON_REVIEW_PROFILES[0],(96,160),np.zeros_like(a))
+        self.assertEqual(m['coverage_by_region']['large_skirt'],0)
+        self.assertEqual(m['coverage_by_region']['leg_foot'],0)
+    def test_future_new_approval_cannot_resurrect_rejected_person5(self):
+        from .approved_layers import prepare_selection,validate_selection
+        with patch('tools.layered_v4.review_policy.GENERATION_PAUSED',False):
+            with self.assertRaisesRegex(RuntimeError,'Reject'):prepare_selection('old.zip','none','none')
+            with self.assertRaisesRegex(RuntimeError,'Reject'):validate_selection('none')

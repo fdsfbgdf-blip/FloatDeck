@@ -59,6 +59,9 @@ def main():
     parser=argparse.ArgumentParser();parser.add_argument('command',choices=['init','preflight','lock-models','segment','person-review','check-segmentation','approve-segmentation','matte','prepare-masks','approve-masks','background','build','approve-output','pack'])
     parser.add_argument('--project');parser.add_argument('--work',required=True);parser.add_argument('--input');parser.add_argument('--output');parser.add_argument('--basic',action='store_true')
     parser.add_argument('--allow-known-person-occlusion',action='store_true');parser.add_argument('--reviewed',action='store_true');parser.add_argument('--draft',action='store_true');args=parser.parse_args()
+    if args.command in ['matte','prepare-masks','approve-masks','background','build','approve-output','pack','approve-segmentation']:
+        from .review_policy import guard_generation
+        guard_generation()
     p=Path(args.work);p.mkdir(parents=True,exist_ok=True)
     config_path=p/'config.json';config=json.loads(config_path.read_text()) if config_path.exists() and args.command not in ['preflight','lock-models'] else DEFAULT
     # Environment diagnostics must not depend on a scene config/schema migration.

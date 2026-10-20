@@ -28,37 +28,18 @@ class ApprovedLayerTests(unittest.TestCase):
         self.assertEqual(r['added_pixels'],0)
     def test_user_approval_bound_to_exact_assets_and_no_fake_basic_pass(self):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d);archive,expected=self.make_input(p)
-            with patch.dict(APPROVED_INPUTS,expected,clear=True):
-                s=prepare_selection(archive,p/'work',p/'project');validate_selection(p/'work')
-                cfg=json.loads((p/'work/config.json').read_text());require_review(p/'work',cfg)
-                self.assertEqual(s['person']['candidate_index'],5);self.assertTrue(s['person']['human_approved']);self.assertEqual(s['pearl']['candidate_index'],2)
-                self.assertFalse((p/'work/review.json').exists());self.assertFalse((p/'work/background.png').exists())
-                self.assertFalse(json.loads((p/'work/segmentation-check.json').read_text())['passed'])
+            with self.assertRaisesRegex(RuntimeError,'Reject'):prepare_selection('old.zip',Path(d)/'work',Path(d)/'project')
+            self.assertFalse((Path(d)/'project').exists())
     def test_different_assets_not_automatically_approved(self):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d);archive,_=self.make_input(p)
-            with self.assertRaisesRegex(ValueError,'不一致'):prepare_selection(archive,p/'work',p/'project')
-            self.assertFalse((p/'project/fixed-pearl.json').exists())
+            with self.assertRaisesRegex(RuntimeError,'Reject'):prepare_selection('different.zip',Path(d)/'work',Path(d)/'project')
     def test_changed_cleaned_mask_invalidates_review(self):
         with tempfile.TemporaryDirectory() as d:
-            p=Path(d);archive,expected=self.make_input(p)
-            with patch.dict(APPROVED_INPUTS,expected,clear=True):
-                prepare_selection(archive,p/'work',p/'project');Image.new('L',(96,160)).save(p/'work/person_mask.png')
-                with self.assertRaises(ValueError):validate_selection(p/'work')
+            with self.assertRaisesRegex(RuntimeError,'Reject'):validate_selection(d)
     def test_alpha_stage_exports_real_rgba_but_not_auto_approval(self):
-        with tempfile.TemporaryDirectory() as d:
-            p=Path(d);archive,expected=self.make_input(p)
-            with patch.dict(APPROVED_INPUTS,expected,clear=True):prepare_selection(archive,p/'work',p/'project')
-            work=p/'work';lock=json.loads((work/'models.lock.json').read_text());lock['matte']={'id':'hustvl/vitmatte-small-composition-1k','revision':'b'*40};(work/'models.lock.json').write_text(json.dumps(lock))
-            def fake_matte(work,cfg):
-                for n in ['person','pearl']:
-                    a=load_mask(work/f'{n}_mask.png',(96,160));save_mask(work/f'{n}_alpha.png',a);save_mask(work/f'{n}_protect.png',a)
-            with patch('tools.layered_v4.models.matte',side_effect=fake_matte):r=execute_alpha(work)
-            self.assertFalse(r['alpha_human_approved']);self.assertFalse(r['background_executed'])
-            self.assertEqual(Image.open(work/'person_rgba_ALPHA_REVIEW.png').mode,'RGBA')
-            z=export_stage(work,p/'stage.zip')
-            with zipfile.ZipFile(z) as a:self.assertIn('person_mask.png',a.namelist());self.assertIn('person_alpha.png',a.namelist());self.assertNotIn('background.png',a.namelist())
+        with tempfile.TemporaryDirectory() as d,patch('tools.layered_v4.models.matte') as matte:
+            with self.assertRaisesRegex(RuntimeError,'Reject'):execute_alpha(d)
+            matte.assert_not_called()
     def test_actual_approved_mask_cleanup_matches_delivered_result(self):
         # Actual provided binary mask regression, no synthetic depth or GPU claim.
         root=Path(__file__).resolve().parents[2]/'work/v4/selected5-mask-download'
