@@ -13,6 +13,10 @@ for c in nb['cells']:
 joined='\n'.join(source)
 for token in ["[PY,'-m','pip'", "[PY,'-m','tools.layered_v4.cli'", "run('preflight')", "run('segment')", "run('matte')", "run('background')",'MASKS_REVIEWED=False',"FINAL_REVIEWED=all",'ACCEPT_UNKNOWN_PERSON_BEHIND_PEARL=False',"SELECT={'person':None,'pearl':None}","run('check-segmentation')","run('approve-segmentation','--reviewed')",'CONTINUE_AFTER_SEGMENTATION=False',"sam_prompts"]:
     assert token in joined,token
+assert 'from tools.layered_v4.process import run_logged' in joined
+assert "checked([PY,'-m','pip','check'])" in joined
+assert joined.index('def checked(')<joined.index("checked([PY,'-m','pip'")<joined.index("run('preflight')")
+assert 'LOCK_MODEL_REVISIONS=False' in joined
 assert '[sys.executable,\' -m\'' not in joined
 try:
     import nbformat

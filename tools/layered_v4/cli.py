@@ -60,8 +60,9 @@ def main():
     parser.add_argument('--work',required=True);parser.add_argument('--input');parser.add_argument('--output');parser.add_argument('--basic',action='store_true')
     parser.add_argument('--allow-known-person-occlusion',action='store_true');parser.add_argument('--reviewed',action='store_true');parser.add_argument('--draft',action='store_true');args=parser.parse_args()
     p=Path(args.work);p.mkdir(parents=True,exist_ok=True)
-    config_path=p/'config.json';config=json.loads(config_path.read_text()) if config_path.exists() else DEFAULT
-    check_config(config)
+    config_path=p/'config.json';config=json.loads(config_path.read_text()) if config_path.exists() and args.command not in ['preflight','lock-models'] else DEFAULT
+    # Environment diagnostics must not depend on a scene config/schema migration.
+    if args.command not in ['preflight','lock-models']:check_config(config)
     if args.command=='init':
         if not args.input:parser.error('--input required')
         if (p/'input.json').exists():raise ValueError('Use a fresh work directory; do not overwrite an existing reviewed project')

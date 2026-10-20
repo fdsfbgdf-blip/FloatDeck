@@ -10,32 +10,65 @@ DEFAULT_MODELS={'segment':'facebook/sam-vit-base','matte':'hustvl/vitmatte-small
 
 def preflight(work,basic=False):
     work=Path(work);work.mkdir(parents=True,exist_ok=True)
-    if sys.version_info[:2]!=(3,12):raise RuntimeError(f'Use the selected Python 3.12 environment, got {sys.executable}: {sys.version}')
-    cache=Path(os.environ.get('HF_HOME',str(work/'model-cache')));cache.mkdir(parents=True,exist_ok=True)
-    probe=cache/'.write-probe';probe.write_text('ok');probe.unlink()
-    report={'python':sys.executable,'version':sys.version,'cache':str(cache),'cache_writable':True,
-            'free_disk_gib':shutil.disk_usage(cache).free/2**30,'nvidia_smi':shutil.which('nvidia-smi')}
-    repo=Path(__file__).resolve().parents[2]
-    commit=subprocess.run(['git','-C',str(repo),'rev-parse','HEAD'],capture_output=True,text=True)
-    report['generator_commit']=commit.stdout.strip() if commit.returncode==0 else 'unavailable'
-    if report['nvidia_smi']:
-        try:
-            p=subprocess.run([report['nvidia_smi'],'--query-gpu=name,memory.total,driver_version','--format=csv,noheader'],capture_output=True,text=True,timeout=15)
-            report['nvidia_smi_result']=p.stdout.strip() if p.returncode==0 else 'unavailable; use torch CUDA probe'
-        except (OSError,subprocess.TimeoutExpired):report['nvidia_smi_result']='unavailable; use torch CUDA probe'
-    else:report['nvidia_smi_result']='command absent; not itself a CUDA failure'
-    if not basic:
-        import importlib.metadata as md
-        required=['torch','torchvision','transformers','diffusers','accelerate','safetensors','huggingface-hub','addict','scipy','Pillow']
-        report['dependencies']={n:md.version(n) for n in required}
-        import addict,torch
-        if not torch.cuda.is_available():raise RuntimeError('CUDA unavailable in selected interpreter; select Colab T4 GPU, not CPU runtime')
-        p=torch.cuda.get_device_properties(0);free,total=torch.cuda.mem_get_info()
-        report.update(gpu=p.name,total_vram_gib=total/2**30,free_vram_gib=free/2**30,torch_cuda=torch.version.cuda)
-        if total<14*2**30 or free<10*2**30:raise RuntimeError('Need >=14 GiB total / >=10 GiB free VRAM; stop other GPU models first')
-        if report['free_disk_gib']<20:raise RuntimeError('Need >=20 GiB free cache/output disk before downloading models')
-        report['gpu_probe_passed']=True
-    (work/'preflight.json').write_text(json.dumps(report,indent=2));return report
+    report={'python':sys.executable,'version':sys.version,'basic_only':basic,'passed':False,'gpu_probe_passed':False}
+    try:
+        report['stage']='python'
+        if sys.version_info[:2]!=(3,12):raise RuntimeError(f'Use the selected Python 3.12 environment, got {sys.executable}: {sys.version}')
+        report['stage']='cache'
+        cache=Path(os.environ.get('HF_HOME',str(work/'model-cache')))
+        report.update(cache=str(cache),cache_writable=False)
+        cache.mkdir(parents=True,exist_ok=True)
+        probe=cache/'.write-probe';probe.write_text('ok');probe.unlink()
+        report.update({'python':sys.executable,'version':sys.version,'cache':str(cache),'cache_writable':True,
+                'free_disk_gib':shutil.disk_usage(cache).free/2**30,'nvidia_smi':shutil.which('nvidia-smi')})
+        repo=Path(__file__).resolve().parents[2]
+        commit=subprocess.run(['git','-C',str(repo),'rev-parse','HEAD'],capture_output=True,text=True)
+        report['generator_commit']=commit.stdout.strip() if commit.returncode==0 else 'unavailable'
+        if report['nvidia_smi']:
+            try:
+                p=subprocess.run([report['nvidia_smi'],'--query-gpu=name,memory.total,driver_version','--format=csv,noheader'],capture_output=True,text=True,timeout=15)
+                report['nvidia_smi_result']=p.stdout.strip() if p.returncode==0 else 'unavailable; use torch CUDA probe'
+            except (OSError,subprocess.TimeoutExpired):report['nvidia_smi_result']='unavailable; use torch CUDA probe'
+        else:report['nvidia_smi_result']='command absent; not itself a CUDA failure'
+        if not basic:
+            report['stage']='dependencies'
+            import importlib.metadata as md
+            required=['numpy','torch','torchvision','transformers','diffusers','accelerate','safetensors','huggingface-hub','addict','scipy','Pillow']
+            report['dependencies']={n:md.version(n) for n in required}
+            report['stage']='dependency-imports'
+            import addict,torch,torchvision
+            import transformers,diffusers,accelerate,safetensors,huggingface_hub,scipy
+            report['stage']='pip-check'
+            pip_result=subprocess.run([sys.executable,'-m','pip','check'],capture_output=True,text=True)
+            report['pip_check']={'returncode':pip_result.returncode,'stdout':pip_result.stdout,'stderr':pip_result.stderr}
+            if pip_result.returncode:raise RuntimeError('Dependency conflicts: '+pip_result.stdout+pip_result.stderr)
+            report['stage']='cuda'
+            report['torch_cuda']=torch.version.cuda
+            report['cuda_available']=torch.cuda.is_available()
+            if not torch.cuda.is_available():raise RuntimeError('CUDA unavailable in selected interpreter; select Colab T4 GPU, not CPU runtime')
+            p=torch.cuda.get_device_properties(0);free,total=torch.cuda.mem_get_info()
+            report.update(gpu=p.name,total_vram_gib=total/2**30,free_vram_gib=free/2**30,torch_cuda=torch.version.cuda)
+            report['stage']='vram'
+            if total<14*2**30 or free<10*2**30:raise RuntimeError(f'Need >=14 GiB total / >=10 GiB free VRAM; observed total={total/2**30:.3f} GiB, free={free/2**30:.3f} GiB. Stop other GPU models or restart T4 runtime')
+            report['stage']='disk'
+            if report['free_disk_gib']<20:raise RuntimeError(f"Need >=20 GiB free cache/output disk; observed {report['free_disk_gib']:.3f} GiB at {cache}")
+            report['stage']='cuda-torchvision-operator'
+            # Tiny actual CUDA operation detects unusable runtime or mismatched torchvision extensions.
+            boxes=torch.tensor([[0.,0.,1.,1.]],device='cuda')
+            torchvision.ops.nms(boxes,torch.ones(1,device='cuda'),.5)
+            torch.cuda.synchronize()
+            del boxes
+            report['gpu_probe_passed']=True
+        report['passed']=True;report['stage']='complete'
+        return report
+    except Exception as exc:
+        report['error_type']=type(exc).__name__;report['error']=str(exc)
+        import traceback
+        report['traceback']=traceback.format_exc()
+        raise
+    finally:
+        # Overwrite stale success even on failure; traceback still reaches subprocess stderr.
+        (work/'preflight.json').write_text(json.dumps(report,indent=2))
 
 def lock_models(work):
     from huggingface_hub import model_info

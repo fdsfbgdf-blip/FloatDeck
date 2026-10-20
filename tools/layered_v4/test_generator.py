@@ -155,4 +155,67 @@ class SegmentationTests(unittest.TestCase):
         c=dict(DEFAULT);c.pop('sam_prompts')
         with self.assertRaisesRegex(ValueError,'migrate'):check_config(c)
 
+
+
+class PreflightDiagnosticsTests(unittest.TestCase):
+    def test_full_subprocess_output_and_nonzero_exit(self):
+        import contextlib,subprocess,sys,os
+        from .process import run_logged
+        with tempfile.TemporaryDirectory() as d:
+            out=io.StringIO();err=io.StringIO()
+            with contextlib.redirect_stdout(out),contextlib.redirect_stderr(err):
+                with self.assertRaises(subprocess.CalledProcessError) as caught:
+                    run_logged([sys.executable,'-c',"import sys; print('stdout-evidence'); print('stderr-evidence',file=sys.stderr); sys.exit(7)"],cwd=d,env=os.environ.copy(),log_dir=d)
+            self.assertEqual(caught.exception.returncode,7)
+            self.assertIn('COMMAND:',out.getvalue());self.assertIn('EXIT CODE: 7',out.getvalue())
+            self.assertIn('stdout-evidence',out.getvalue());self.assertIn('stderr-evidence',err.getvalue())
+            self.assertEqual(next(Path(d).glob('*.stderr.txt')).read_text(),'stderr-evidence\n')
+    def test_preflight_does_not_parse_invalid_scene_config(self):
+        import subprocess,sys
+        with tempfile.TemporaryDirectory() as d:
+            Path(d,'config.json').write_text('{invalid obsolete scene config')
+            r=subprocess.run([sys.executable,'-m','tools.layered_v4.cli','preflight','--basic','--work',d],capture_output=True,text=True)
+            self.assertEqual(r.returncode,0,r.stderr)
+            report=json.loads(Path(d,'preflight.json').read_text())
+            self.assertTrue(report['basic_only']);self.assertFalse(report['gpu_probe_passed'])
+    def test_wrong_python_failure_overwrites_previous_success(self):
+        from unittest.mock import patch
+        from .models import preflight
+        with tempfile.TemporaryDirectory() as d:
+            Path(d,'preflight.json').write_text('{"passed":true}')
+            with patch('sys.version_info',(3,11)):
+                with self.assertRaisesRegex(RuntimeError,'Python 3.12'):preflight(d)
+            r=json.loads(Path(d,'preflight.json').read_text())
+            self.assertFalse(r['passed']);self.assertEqual(r['stage'],'python');self.assertIn('Traceback',r['traceback'])
+    def test_cache_failure_saved(self):
+        from unittest.mock import patch
+        from .models import preflight
+        with tempfile.TemporaryDirectory() as d:
+            cache=Path(d,'not-directory');cache.write_text('x')
+            with patch.dict('os.environ',{'HF_HOME':str(cache)}):
+                with self.assertRaises(OSError):preflight(d)
+            r=json.loads(Path(d,'preflight.json').read_text())
+            self.assertEqual(r['stage'],'cache');self.assertFalse(r['cache_writable']);self.assertFalse(r['passed'])
+
+    def test_resource_failures_are_not_success(self):
+        from unittest.mock import patch
+        from types import SimpleNamespace as NS
+        from contextlib import ExitStack
+        from .models import preflight
+        for stage in ['cuda','vram','disk','pip-check']:
+            with self.subTest(stage=stage),tempfile.TemporaryDirectory() as d,ExitStack() as stack:
+                cuda=NS(is_available=lambda:stage!='cuda',get_device_properties=lambda n:NS(name='FAKE-CPU-TEST'),
+                        mem_get_info=lambda:((9 if stage=='vram' else 12)*2**30,15*2**30))
+                modules={n:NS() for n in ['addict','torchvision','transformers','diffusers','accelerate','safetensors','huggingface_hub','scipy']}
+                modules['torch']=NS(cuda=cuda,version=NS(cuda='FAKE'))
+                stack.enter_context(patch.dict('sys.modules',modules))
+                stack.enter_context(patch('importlib.metadata.version',return_value='mock-only'))
+                stack.enter_context(patch('shutil.which',return_value=None))
+                stack.enter_context(patch('shutil.disk_usage',return_value=NS(free=(19 if stage=='disk' else 40)*2**30)))
+                stack.enter_context(patch('subprocess.run',return_value=NS(returncode=1 if stage=='pip-check' else 0,stdout='mock-conflict' if stage=='pip-check' else '',stderr='')))
+                with self.assertRaises(RuntimeError):preflight(d)
+                r=json.loads(Path(d,'preflight.json').read_text())
+                self.assertFalse(r['passed']);self.assertFalse(r['gpu_probe_passed']);self.assertEqual(r['stage'],stage)
+                if stage=='vram':self.assertIn('9.000',r['error'])
+
 if __name__=='__main__':unittest.main()
