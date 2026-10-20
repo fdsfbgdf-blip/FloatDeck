@@ -29,7 +29,7 @@
 
 48项CPU测试通过：原41项+人物复审7项，覆盖person-only调用、六候选和待审状态、珍珠字节/哈希不变与篡改拒绝、ZIP路径安全、排序不看IoU、提示坐标与范围、人物重跑不删除珍珠、通用分割禁止覆盖锁定珍珠。Notebook13单元AST/严格nbformat与阶段守卫检查、compileall、diff检查通过。
 
-测试中的SAM为显式fake，只验证流程，不代表真实分割成功。当前没有真实人物复审输出，未生成可称为实际仙女结果的ZIP；新包由Colab运行后产生。未改Android/正式Shader/APP V1导入器或其他分支。Actions结果提交后补充。
+测试中的SAM为显式fake，只验证流程，不代表真实分割成功。当前没有真实人物复审输出，未生成可称为实际仙女结果的ZIP；新包由Colab运行后产生。未改Android/正式Shader/APP V1导入器或其他分支。[Actions39392899230](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39392899230) 对代码提交7f29a418de8392f7a367c943e1fbcd82e2f186c1已 completed / success，包含48项CPU测试与严格Notebook检查。
 
 ## 用户操作
 
