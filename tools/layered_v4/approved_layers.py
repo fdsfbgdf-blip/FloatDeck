@@ -151,7 +151,14 @@ def run_approved_stage(base,root,archive,bootstrap_commands=()):
         s.command([py,'-m','tools.layered_v4.approved_layers','--work',work,'--project',project,'--archive',archive])
         s.report.update(passed=True,stage='alpha-awaiting-review',message='人物5已选定并轻清理，珍珠2不变；Alpha抠图已完成，请发送结果ZIP继续审核。未自动批准新Alpha或背景。')
     except Exception as exc:s.report.update(error=str(exc),traceback=traceback.format_exc(),message='后处理已停止，结果和错误已打包；请发送ZIP，无需查看日志。')
-    finally:out=export_stage(work,base/'FloatDeck-selected5-alpha-review.zip',s)
+    finally:
+        if (work/'matte-execution.json').exists():
+            s.report['matte_execution']=json.loads((work/'matte-execution.json').read_text())
+            s.report['models_started']=bool(s.report['matte_execution'].get('executed'))
+        if (work/'preflight.json').exists():
+            s.report['current_preflight']=json.loads((work/'preflight.json').read_text())
+            s.report['gpu_verified']=bool(s.report['current_preflight'].get('gpu_probe_passed'))
+        out=export_stage(work,base/'FloatDeck-selected5-alpha-review.zip',s)
     print(s.report['message']);return {'zip':str(out),'work':str(work),'passed':s.report['passed']}
 
 
