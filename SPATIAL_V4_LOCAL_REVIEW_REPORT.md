@@ -19,4 +19,4 @@ Notebook新增「一键人物局部分割审核（核心／白纱／裙摆／腿
 
 CPU模型输出使用明确mock，并不证明真实分割质量。本轮没有执行Colab T4/SAM；实际局部画质、显存及耗时尚未验证。只在用户T4产生真实结果并人工审核后继续。
 
-Actions结果提交后记录。
+Actions通过（代码提交0abfe1e）：https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39423433195 。CI无真实素材的私有用例按设计跳过，其他CPU/Notebook/schema检查通过；不包含GPU实测。
