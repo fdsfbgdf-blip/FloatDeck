@@ -64,6 +64,15 @@ def gpu_stage(work,name,fn):
     return result
 
 def segment(work,config):
+    workp=Path(work)
+    # Invalidate stale downstream approvals before any rerun, even if CUDA fails.
+    for f in ['segmentation-review.json','review.json','person_mask.png','pearl_mask.png']:
+        (workp/f).unlink(missing_ok=True)
+    for name in ['person','pearl']:
+        for f in list(workp.glob(f'{name}_candidate_*.png'))+[workp/f'{name}_proposal.json']:
+            f.unlink(missing_ok=True)
+    shutil.rmtree(workp/'segmentation-previews',ignore_errors=True)
+    from .segmentation import pixels,check_mask,previews
     def run():
         import torch
         from transformers import SamModel,SamProcessor
@@ -72,17 +81,21 @@ def segment(work,config):
         processor=SamProcessor.from_pretrained(spec['id'],revision=spec['revision'])
         model=SamModel.from_pretrained(spec['id'],revision=spec['revision'],torch_dtype=torch.float32).to('cuda').eval()
         for name in ['person','pearl']:
-            box=[v*(w if i%2==0 else h) for i,v in enumerate(config['boxes'][name])]
-            inputs=processor(images=image,input_boxes=[[box]],return_tensors='pt')
+            box,points,labels=pixels(config['sam_prompts'][name],image.size)
+            inputs=processor(images=image,input_boxes=[[box]],input_points=[[points]],input_labels=[[labels]],return_tensors='pt')
             original=inputs['original_sizes'];reshaped=inputs['reshaped_input_sizes']
             inputs={k:v.to('cuda') for k,v in inputs.items() if k not in ['original_sizes','reshaped_input_sizes']}
             with torch.inference_mode():output=model(**inputs,multimask_output=True)
             masks=processor.image_processor.post_process_masks(output.pred_masks.cpu(),original,reshaped)[0][0].numpy()
             scores=output.iou_scores[0,0].float().cpu().tolist()
+            if masks.shape!=(3,h,w) or len(scores)!=3 or not np.isfinite(scores).all():
+                raise RuntimeError('SAM candidates must be 3 native HxW masks with finite scores; no resize fallback')
             for i,m in enumerate(masks):save_mask(workp/f'{name}_candidate_{i}.png',m)
-            selected=int(np.argmax(scores));save_mask(workp/f'{name}_mask.png',masks[selected])
-            (workp/f'{name}_proposal.json').write_text(json.dumps({'box':box,'scores':scores,'proposed_index':selected,
-                 'accepted':False,'warning':'SAM score is not visual acceptance. Review hair/fingers/cloth/sphere.'},indent=2))
+            checks=[check_mask(m,config['sam_prompts'][name],image.size,name) for m in masks]
+            (workp/f'{name}_proposal.json').write_text(json.dumps({'box':box,'points':points,'labels':labels,
+                 'scores':scores,'checks':checks,'selected_index':None,'accepted':False,
+                 'warning':'No automatic selection. Inspect ALL named candidates, copy chosen native mask explicitly; score is not object identity.'},indent=2))
+        previews(workp,config)
         del model,processor
     return gpu_stage(work,'segment',run)
 
@@ -93,6 +106,8 @@ def starts(length,tile,overlap):
     return values
 
 def matte(work,config):
+    from .segmentation import require_review
+    require_review(work,config) # fail BEFORE importing/loading GPU models
     def run():
         import torch
         from transformers import VitMatteForImageMatting,VitMatteImageProcessor

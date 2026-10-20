@@ -121,4 +121,38 @@ class GeneratorTests(unittest.TestCase):
         if target:
             Path(target).parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(self.archive,target)
 
+
+
+class SegmentationTests(unittest.TestCase):
+    def test_native_xy_not_swapped_or_double_scaled(self):
+        from .segmentation import pixels
+        b,p,l=pixels({'box':[.1,.2,.9,.8],'positive':[[.5,.3]],'negative':[[.2,.9]]},(1648,2944))
+        np.testing.assert_allclose(b,[164.8,588.8,1483.2,2355.2]);np.testing.assert_allclose(p,[[824,883.2],[329.6,2649.6]])
+        self.assertEqual(l,[1,0])
+    def test_scene_boxes_and_seed_validation(self):
+        from .segmentation import pixels,PROMPTS
+        from .cli import check_config
+        check_config(DEFAULT)
+        self.assertLess(PROMPTS['person']['box'][3],.77)
+        self.assertGreater(PROMPTS['pearl']['box'][1],.63)
+        for point in [[1.,.2],[float('nan'),.2]]:
+            with self.assertRaises(ValueError):pixels({'box':[0,0,1,1],'positive':[point],'negative':[[.1,.1]]},(100,200))
+    def test_wrong_target_and_environment_rejected(self):
+        from .segmentation import check_mask
+        prompt={'box':[.1,.1,.8,.6],'positive':[[.3,.3]],'negative':[[.5,.8]]}
+        good=np.zeros((200,100));good[20:120,10:80]=1
+        self.assertTrue(check_mask(good,prompt,(100,200),'person')['passed'])
+        wrong=np.zeros_like(good);wrong[140:190,10:80]=1
+        self.assertFalse(check_mask(wrong,prompt,(100,200),'person')['passed'])
+        self.assertFalse(check_mask(np.ones_like(good),prompt,(100,200),'pearl')['passed'])
+        self.assertFalse(check_mask(good.T,prompt,(100,200),'person')['passed'])
+    def test_matte_blocked_before_torch_without_review(self):
+        from .models import matte
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(FileNotFoundError):matte(d,DEFAULT)
+    def test_old_box_only_config_rejected(self):
+        from .cli import check_config
+        c=dict(DEFAULT);c.pop('sam_prompts')
+        with self.assertRaisesRegex(ValueError,'migrate'):check_config(c)
+
 if __name__=='__main__':unittest.main()

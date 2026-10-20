@@ -3,8 +3,9 @@ import argparse,json,sys
 from pathlib import Path
 import numpy as np
 from .core import *
+from .segmentation import PROMPTS, pixels, inspect, fingerprint
 
-DEFAULT={'conditioning_dilation':16,'translucent_regions':{'person':[[.56,.43,1.,.58],[.22,.49,.65,.65]],'pearl':[]},'boxes':{'person':[.03,.27,1.,.77],'pearl':[0.,.63,.96,1.]},'person_trimap_radius':10,'pearl_trimap_radius':4,
+DEFAULT={'conditioning_dilation':16,'translucent_regions':{'person':[[.56,.43,1.,.58],[.22,.49,.65,.65]],'pearl':[]},'boxes':{k:v['box'] for k,v in PROMPTS.items()},'person_trimap_radius':10,'pearl_trimap_radius':4,
  'matte_tile':768,'matte_overlap':128,'global_long_side':1024,'global_steps':30,'inpaint_tile':1024,'inpaint_overlap':192,
  'refine_steps':24,'refine_strength':.70,'seed':12345,
  'background_prompt':'Underwater fantasy cavern, organic flowing rock formations, warm golden caustic light and turquoise water, continuous natural environmental background, detailed stone and water only, no objects in foreground',
@@ -12,7 +13,12 @@ DEFAULT={'conditioning_dilation':16,'translucent_regions':{'person':[[.56,.43,1.
  'rois':{'face':[.41,.32,.61,.42],'hair':[.40,.29,.94,.49],'fingers':[.23,.40,.50,.49],'veil':[.57,.43,1.,.59],
          'skirt':[.20,.51,.78,.69],'pearl':[.02,.65,.96,1.]}}
 
+DEFAULT['sam_prompts']=PROMPTS
+DEFAULT['boxes']={k:v['box'] for k,v in PROMPTS.items()} # legacy informational field; SAM uses sam_prompts only
+
 def check_config(c):
+    if 'sam_prompts' not in c:raise ValueError('Old box-only config: migrate sam_prompts explicitly before segmentation')
+    for name in ['person','pearl']:pixels(c['sam_prompts'][name],(1648,2944))
     for tile_key,overlap_key in [('matte_tile','matte_overlap'),('inpaint_tile','inpaint_overlap')]:
         tile=c[tile_key];overlap=c[overlap_key]
         if not isinstance(tile,int) or not 256<=tile<=1024 or not isinstance(overlap,int) or not 0<overlap<tile:raise ValueError('T4 tile bounds/overlap invalid')
@@ -50,7 +56,7 @@ def seal_masks(p):
     return review_fingerprint(p)
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['init','preflight','lock-models','segment','matte','prepare-masks','approve-masks','background','build','approve-output','pack'])
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['init','preflight','lock-models','segment','check-segmentation','approve-segmentation','matte','prepare-masks','approve-masks','background','build','approve-output','pack'])
     parser.add_argument('--work',required=True);parser.add_argument('--input');parser.add_argument('--output');parser.add_argument('--basic',action='store_true')
     parser.add_argument('--allow-known-person-occlusion',action='store_true');parser.add_argument('--reviewed',action='store_true');parser.add_argument('--draft',action='store_true');args=parser.parse_args()
     p=Path(args.work);p.mkdir(parents=True,exist_ok=True)
@@ -60,6 +66,13 @@ def main():
         if not args.input:parser.error('--input required')
         if (p/'input.json').exists():raise ValueError('Use a fresh work directory; do not overwrite an existing reviewed project')
         result=import_v1(args.input,p);config_path.write_text(json.dumps(config,ensure_ascii=False,indent=2))
+    elif args.command in ['check-segmentation','approve-segmentation']:
+        result=inspect(p,config)
+        if not result['passed']:raise ValueError('Unreasonable segmentation: inspect segmentation-check.json, adjust prompts/select/edit masks')
+        if args.command=='approve-segmentation':
+            if not args.reviewed:raise ValueError('Explicit human review required')
+            result={'human_approved':True,'fingerprint':fingerprint(p,config)}
+            (p/'segmentation-review.json').write_text(json.dumps(result,indent=2))
     elif args.command in ['preflight','lock-models','segment','matte','background']:
         from . import models
         if args.command=='preflight':result=models.preflight(p,args.basic)
