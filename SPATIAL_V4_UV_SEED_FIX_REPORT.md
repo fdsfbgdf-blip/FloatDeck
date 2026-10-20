@@ -20,7 +20,8 @@
 - 实际 CPU smoke：uv 0.6.3 创建独立 Python 3.12，pip 可调用，pip check 成功；输出诊断 ZIP。未安装 torch 或模型来伪造 GPU 测试。
 - 模拟系统缺 ensurepip 的测试禁止任何标准库 venv/ensurepip 调用；恢复前后缓存、source 和 pearl_mask 字节不变。
 - Colab T4/CUDA 完整环境与真实 SAM 分割：尚未验证。没有新的实际人物候选 ZIP；只有在用户 Colab 真正完成分割后才会输出候选包。
-- GitHub Actions：提交后记录结果。
+- GitHub Actions：代码提交 19101c8 的 CPU/Notebook/schema 工作流通过：
+  https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39420876651 。CI 不运行 GPU 模型；私有真实素材用例在无素材的 CI 中按设计跳过。
 
 ## 用户操作
 打开本分支最新版 Notebook，仅运行「人物覆盖复审（白纱/裙摆/腿脚）」单元。素材丢失时按一次上传提示选择已有完整审核包。其余环境准备、检查、固定珍珠、六候选推理和导出自动执行。
