@@ -25,7 +25,7 @@ jobs:
         env:
           FLOATDECK_SCHEMA_FIXTURE: work/v4/SYNTHETIC_SCHEMA_ONLY.spatial-v2.zip
         run: |
-          python -m unittest -v tools.layered_v4.test_generator tools.layered_v4.test_diagnostics tools.layered_v4.test_sam_export tools.layered_v4.test_person_review tools.layered_v4.test_approved_layers tools.layered_v4.test_coverage_entry tools.layered_v4.test_python_bootstrap
+          python -m unittest -v tools.layered_v4.test_generator tools.layered_v4.test_diagnostics tools.layered_v4.test_sam_export tools.layered_v4.test_person_review tools.layered_v4.test_approved_layers tools.layered_v4.test_coverage_entry tools.layered_v4.test_python_bootstrap tools.layered_v4.test_local_review
           python -m tools.layered_v4.validate work/v4/SYNTHETIC_SCHEMA_ONLY.spatial-v2.zip --allow-draft
       - uses: actions/upload-artifact@v4
         with:

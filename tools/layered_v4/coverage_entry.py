@@ -83,8 +83,11 @@ def ensure_environment(session):
     if not record.get('gpu_probe_passed'):raise RuntimeError('当前GPU真实检查没有通过')
     return result,record
 
-def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=()):
+def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=(),local=False):
     base=Path(base);root=Path(root);project=base/'project-001'
+    exporter=export_person
+    if local:
+        exporter=export_local
     work=base/'person-review-runs'/str(time.time_ns());work.mkdir(parents=True)
     s=DiagnosticSession(base,root);s.report.update(task='standalone-person-coverage',selected=None,human_approved=False,
         candidate_generation_complete=False,person5_rejected=True,pearl_candidate=2,CONTINUE_AFTER_SEGMENTATION=False)
@@ -94,7 +97,18 @@ def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=()):
         env,current=ensure_environment(s)
         s.report.update(passed=False,current_environment_passed=True,current_preflight=current,stage='review-material',models_started=False)
         print('当前环境已通过，正在检查原审核素材；不会恢复人物5审批。')
+        if local and archive is None:
+            choices=[base/'local-review-input.zip',base/'FloatDeck-person-coverage-rereview.zip']
+            archive=next((f for f in choices if has_review(f)),None)
+            if archive is None:
+                if upload_once is None:raise ValueError('请上传最新完整人物覆盖复审ZIP')
+                uploaded=upload_once()
+                if not isinstance(uploaded,dict) or len(uploaded)!=1:raise ValueError('需要一次上传一个完整覆盖复审ZIP')
+                archive=base/'local-review-input.zip';archive.write_bytes(next(iter(uploaded.values())))
         review=obtain_review(base,upload_once,archive)
+        if local:
+            with zipfile.ZipFile(review) as z:
+                if 'person_candidate_2.png' not in z.namelist():raise ValueError('局部分割需要完整覆盖复审包（含人物候选2）')
         s.report['input_archive']=str(review);s.report['stage']='asset-validation'
         py=env['python'];s.env=env['env']
         s.command([py,'-m','tools.layered_v4.cli','restore-review','--work',work,'--project',project,'--input',review])
@@ -102,12 +116,12 @@ def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=()):
         if not validation.get('validated') or not validation.get('person5_rejected') or validation.get('pearl_candidate')!=2:raise ValueError('素材验证/人物Reject/固定珍珠条件没有满足')
         s.report['assets_validated']=True;s.report['asset_validation']=validation
         s.report['stage']='person-only-SAM';s.report['sam_command_attempted']=True
-        print('素材已验证：固定珍珠2，只运行新的六个人物覆盖候选。')
-        s.command([py,'-m','tools.layered_v4.cli','person-review','--work',work,'--project',project,'--input',review])
-        checks=json.loads((work/'person-checks.json').read_text())
-        if not checks.get('complete') or len(checks.get('candidates',[]))!=6:raise RuntimeError('SAM候选输出不完整')
+        print('素材已验证：固定珍珠2，开始局部候选审核。' if local else '素材已验证：固定珍珠2，只运行新的六个人物覆盖候选。')
+        s.command([py,'-m','tools.layered_v4.cli','local-person-review' if local else 'person-review','--work',work,'--project',project,'--input',review])
+        checks=json.loads((work/('local-checks.json' if local else 'person-checks.json')).read_text())
+        if not checks.get('complete') or len(checks.get('candidates',[]))!=(18 if local else 6):raise RuntimeError('SAM候选输出不完整')
         s.report.update(passed=False,stage='awaiting-human-review',candidate_generation_complete=True,
-            message='六个人物覆盖候选已完整生成，尚未人工通过。请发送复审ZIP审核；未运行Alpha、背景或最终打包。')
+            message=('局部候选与组合预览已生成，全部待人工审核。' if local else '六个人物覆盖候选已完整生成，尚未人工通过。')+'请发送复审ZIP；未运行Alpha、背景或最终打包。')
     except (Exception,KeyboardInterrupt) as exc:
         s.report.update(passed=False,candidate_generation_complete=False,error=str(exc),traceback=traceback.format_exc(),
             message='【未完成分割：失败诊断包】阶段：'+s.report.get('stage','unknown')+'。'+str(exc)+'。请把下载ZIP发给ChatGPT，不需要阅读Python日志。')
@@ -115,6 +129,20 @@ def run_coverage(base,root,upload_once=None,archive=None,bootstrap_commands=()):
         execution=work/'segment-execution.json'
         if execution.exists():
             s.report['sam_execution']=json.loads(execution.read_text());s.report['models_started']=bool(s.report['sam_execution'].get('executed'))
-        out=export_person(work,s)
+        out=exporter(work,s)
     print(s.report['message'])
     return {'zip':str(out),'work':str(work),'passed':False,'candidate_generation_complete':s.report['candidate_generation_complete']}
+
+
+def export_local(work,session):
+    from .diagnostics import redact
+    p=Path(work);out=session.base/'FloatDeck-person-local-rereview.zip'
+    with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as z:
+        complete=session.report.get('candidate_generation_complete',False)
+        z.writestr('00_请先阅读_运行结果.txt',('候选完整生成，尚未人工通过' if complete else '未完成分割：失败诊断包')+'\n'+redact(session.report.get('message',''),session.env))
+        z.writestr('person-session-report.json',redact(json.dumps(session.report,ensure_ascii=False,indent=2),session.env))
+        for f in sorted(p.rglob('*')):
+            if f.is_file() and f.suffix in ('.png','.jpg','.json','.md'):
+                if f.suffix in ('.json','.md'):z.writestr(str(f.relative_to(p)),redact(f.read_text(),session.env))
+                else:z.write(f,str(f.relative_to(p)))
+    return out
