@@ -11,13 +11,18 @@ for c in nb['cells']:
         assert c['execution_count'] is None and c['outputs']==[], 'unrun notebook must not contain fabricated model output'
         s=''.join(c['source']);ast.parse(s);source.append(s)
 joined='\n'.join(source)
-for token in ["[PY,'-m','pip'", "[PY,'-m','tools.layered_v4.cli'", "run('preflight')", "run('segment')", "run('matte')", "run('background')",'MASKS_REVIEWED=False',"FINAL_REVIEWED=all",'ACCEPT_UNKNOWN_PERSON_BEHIND_PEARL=False',"SELECT={'person':None,'pearl':None}","run('check-segmentation')","run('approve-segmentation','--reviewed')",'CONTINUE_AFTER_SEGMENTATION=False',"sam_prompts"]:
+for token in ["[PY,'-m','tools.layered_v4.cli'", "run('segment')", "run('matte')", "run('background')",'MASKS_REVIEWED=False',"FINAL_REVIEWED=all",'ACCEPT_UNKNOWN_PERSON_BEHIND_PEARL=False',"SELECT={'person':None,'pearl':None}","run('check-segmentation')","run('approve-segmentation','--reviewed')",'CONTINUE_AFTER_SEGMENTATION=False',"sam_prompts"]:
     assert token in joined,token
-assert 'from tools.layered_v4.process import run_logged' in joined
-assert "checked([PY,'-m','pip','check'])" in joined
-assert joined.index('def checked(')<joined.index("checked([PY,'-m','pip'")<joined.index("run('preflight')")
-assert 'LOCK_MODEL_REVISIONS=False' in joined
-assert '[sys.executable,\' -m\'' not in joined
+first=source[0]
+for token in ['一键环境检查与诊断','diagnostics.prepare(session)',"files.download(str(DIAGNOSTIC_ZIP))",'ALLOW_ASSET_STAGES=False','ENV_READY=False']:
+    assert token in first,token
+for s in source[1:]:assert s.startswith("if not globals().get('ALLOW_ASSET_STAGES',False)"),'diagnosis-only guard missing'
+assert first.index("'pull','--ff-only'")<first.index('diagnostics.prepare(session)')
+assert 'lock-models' not in first and "run('segment')" not in first
+module=ast.parse(Path('tools/layered_v4/diagnostics.py').read_text())
+expected=next(t for t in module.body if isinstance(t,ast.FunctionDef) and t.name=='redact')
+actual=next(t for t in ast.parse(first).body if isinstance(t,ast.FunctionDef) and t.name=='redact')
+assert ast.dump(expected)==ast.dump(actual),'bootstrap redaction must match exporter'
 try:
     import nbformat
     nbformat.validate(nbformat.read(str(path),as_version=4));strict=True
