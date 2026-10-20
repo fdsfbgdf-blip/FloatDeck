@@ -25,7 +25,7 @@
 - Notebook JSON、11代码单元AST、nbformat严格检查通过；第一单元顺序与全部后续素材守卫检查通过；compileall、diff检查通过。
 - 在本云端实际执行解释器/依赖探测与完整CLI preflight：因本环境没有torch，真实退出1并生成失败报告，再实际打包了可读取ZIP。该结果只验证CPU失败报告路径，**不是用户Colab根因，也不是GPU通过**。未在云端安装整套GPU依赖，避免无GPU条件下载大体积轮子。
 - 无真实Colab T4可用：Python3.12 venv/uv在线安装、CUDA wheels实际安装、驱动兼容、GPU显存/算子、浏览器自动下载均**尚未验证**；纯mock成功测试明确不构成T4实测。
-- GitHub Actions 已扩展执行诊断测试，提交后补充结果。不修改 Android、正式 Shader、V1 APP 导入器或其他分支。
+- GitHub Actions 已扩展执行诊断测试；[运行39389393303](https://github.com/fdsfbgdf-blip/FloatDeck/actions/runs/39389393303) 对代码提交 f597b5459e7509c66412613ccfc4624a64ba6fc3 已 completed / success（包含36项CPU测试、严格Notebook检查与格式fixture校验）。不修改 Android、正式 Shader、V1 APP 导入器或其他分支。
 
 ## 用户仅需做的事
 
