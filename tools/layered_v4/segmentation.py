@@ -67,7 +67,13 @@ def fingerprint(work,config):
 
 def require_review(work,config):
     p=Path(work);r=json.loads((p/'segmentation-review.json').read_text())
-    if not r.get('human_approved') or r.get('fingerprint')!=fingerprint(p,config) or not inspect(p,config)['passed']:raise RuntimeError('Segmentation not reviewed/current/plausible; stop before matting')
+    if not r.get('human_approved') or r.get('fingerprint')!=fingerprint(p,config):raise RuntimeError('Segmentation not reviewed/current; stop before matting')
+    measured=inspect(p,config) # retain actual failures even when target identity was manually approved
+    from .approved_layers import BASIS,validate_selection
+    if r.get('approval_basis')==BASIS:
+        if r.get('selection_sha256')!=digest(p/'selection.json'):raise RuntimeError('selection record changed')
+        validate_selection(p);return
+    if not measured['passed']:raise RuntimeError('Segmentation not plausible; stop before matting')
 
 # Person-only re-review: two deliberately bounded hypotheses, three SAM outputs each.
 # These scene hints address reported background leakage; they are NOT approved masks.

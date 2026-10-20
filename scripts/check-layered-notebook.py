@@ -16,13 +16,16 @@ for token in ["[PY,'-m','tools.layered_v4.cli'", "run('segment')", "run('matte')
 first=source[0]
 for token in ['一键环境检查与诊断','diagnostics.prepare(session)',"files.download(str(DIAGNOSTIC_ZIP))",'ALLOW_ASSET_STAGES=False','ENV_READY=False']:
     assert token in first,token
-person=source[1]
+approved=source[1]
+for token in ['已选人物5','approved_layers.run_approved_stage(',"files.download(str(STAGE_ZIP))"]:assert token in approved,token
+assert "run('segment')" not in approved and 'run_person_export(' not in approved
+person=source[2]
 for token in ['人物分割复审导出','person_review.run_person_export(','CONTINUE_AFTER_SEGMENTATION=False',"files.download(str(PERSON_ZIP))"]:assert token in person,token
 assert "prepare(session)" not in person and "run_export(" not in person
-sam=source[2]
+sam=source[3]
 for token in ['一键 SAM 分割与预览','sam_export.require_environment(project,python)','sam_export.run_export(',"files.download(str(SAM_ZIP))"]:assert token in sam,token
 assert 'diagnostics.prepare(' not in sam and "'pip'" not in sam
-for s in source[3:]:assert s.startswith("if not globals().get('ALLOW_ASSET_STAGES',False)"),'diagnosis-only guard missing'
+for s in source[4:]:assert s.startswith("if not globals().get('ALLOW_ASSET_STAGES',False)"),'diagnosis-only guard missing'
 assert first.index("'pull','--ff-only'")<first.index('diagnostics.prepare(session)')
 assert 'lock-models' not in first and "run('segment')" not in first
 module=ast.parse(Path('tools/layered_v4/diagnostics.py').read_text())
